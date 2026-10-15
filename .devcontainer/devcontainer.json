@@ -49,6 +49,13 @@
   },
   "remoteUser": "node",
   "mounts": [
+    "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
+    "source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.git/hooks,target=/workspace/.git/hooks,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.git/config,target=/workspace/.git/config,type=bind,readonly"
+  ],
+  "mounts": [
     "source=${localWorkspaceFolder}/.devcontainer,target=/workspace/.devcontainer,type=bind,readonly",
     "source=${localWorkspaceFolder}/.git/hooks,target=/workspace/.git/hooks,type=bind,readonly",
     "source=${localWorkspaceFolder}/.git/config,target=/workspace/.git/config,type=bind,readonly",
