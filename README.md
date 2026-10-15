@@ -14,6 +14,8 @@ Evaluation of options for **controlling** and **monitoring** Spring Batch jobs r
 - [Requirements](#requirements)
 - [Why scheduling matters here](#why-scheduling-matters-here)
 - [Candidates](#candidates)
+  - [Notifications](#notifications)
+  - [UC4 / external scheduler integration](#uc4--external-scheduler-integration)
   - [Excluded](#excluded)
 - [Assessment](#assessment)
 - [References](#references)
@@ -105,10 +107,13 @@ Only use it with repositories you trust.
 1. **Open source only (no commercial tools), decently maintained**, licence allows use in commercial (closed-source) products.
 2. **Fully embedded** in the Spring Boot app – no extra server/microservice.
 3. **UI** that supports:
-   - changing schedules (cron etc.) at runtime
+   - changing schedules (cron etc.) at runtime, **including the time zone per schedule**
    - manual start / stop
    - viewing logs
    - viewing past executions and their runtime
+4. **Notifications**, e.g. when a run fails – at least via **email**.
+5. **Open to an external scheduler later:** it must be possible to hand scheduling over to **UC4 (Automic Workload Automation)** later
+   (see [UC4 / external scheduler integration](#uc4--external-scheduler-integration)).
 
 ## Why scheduling matters here
 
@@ -122,14 +127,48 @@ Each scheduled task simply calls `JobOperator.start(...)`.
 
 Maintenance data from GitHub as of 2026-10-14.
 
-| Candidate | Licence | Maintained | Embedded | Edit schedule | Start / stop | Logs | Past executions / runtime |
-|-----------|---------|------------|:--------:|:-------------:|:------------:|:----:|:-------------------------:|
-| **Quartz + [Quartz Manager](https://github.com/fabioformosa/quartz-manager)** | Apache-2.0 | ✅ v5.x, Boot 3.5/4.0, small team | ✅ starter + webjar UI | ✅ cron/simple/calendar triggers, pause/resume | ✅ trigger now; stop = scheduler standby/pause | ✅ live via WebSocket (`LogRecord`s from the job) | ⚠️ Quartz-level only, no Spring Batch step details |
-| **[db-scheduler](https://github.com/kagkarlsson/db-scheduler) + [db-scheduler-ui](https://github.com/bekk/db-scheduler-ui)** | Apache-2.0 | ✅ active, Boot 3.4/4.0 starters | ✅ starter, UI at `/db-scheduler` | ⚠️ reschedule/run now; recurring schedules are defined in code | ✅ run now; ⚠️ no stop of a running task | ⚠️ failure messages/stack traces in history | ✅ optional execution-log table with duration |
-| **[JobRunr](https://github.com/jobrunr/jobrunr) (OSS)** | LGPL-3.0 (OK if used unmodified as a library) | ✅ very active | ✅ embedded dashboard | ⚠️ recurring jobs defined in code | ✅ trigger now; ⚠️ no stop | ✅ per-job logging/progress in dashboard | ✅ succeeded/failed jobs with timing |
-| **Custom UI on Spring Batch APIs** (`JobOperator`, `JobRepository`) + Quartz | Apache-2.0 (Spring) | ✅ Spring core projects | ✅ | ✅ (via Quartz API) | ✅ incl. **graceful stop/restart of Spring Batch executions** | ✅ e.g. per-execution log via MDC (`jobExecutionId`) | ✅ full job/step history, read/write/skip counts |
-| **Spring Boot Admin** | Apache-2.0 | ✅ | ❌ separate server app | ❌ | ❌ | ✅ log file viewer | ❌ (metrics only) |
-| **Actuator + Micrometer (Prometheus/Grafana)** | Apache-2.0 | ✅ | ✅ (Grafana is external) | ❌ | ❌ | ❌ | ⚠️ metrics/aggregates only |
+| Candidate | Licence | Maintained | Embedded | Edit schedule | Time zones | Start / stop | Logs | Past executions / runtime | Notifications |
+|-----------|---------|------------|:--------:|:-------------:|:----------:|:------------:|:----:|:-------------------------:|:-------------:|
+| **Quartz + [Quartz Manager](https://github.com/fabioformosa/quartz-manager)** | Apache-2.0 | ✅ v5.x, Boot 3.5/4.0, small team | ✅ starter + webjar UI | ✅ cron/simple/calendar triggers, pause/resume | ✅ time zone field for cron and calendar-interval triggers (API + UI); ⚠️ not yet shown in the trigger detail view | ✅ trigger now; stop = scheduler standby/pause | ✅ live via WebSocket (`LogRecord`s from the job) | ⚠️ Quartz-level only, no Spring Batch step details | ❌ none built in; use a listener |
+| **[db-scheduler](https://github.com/kagkarlsson/db-scheduler) + [db-scheduler-ui](https://github.com/bekk/db-scheduler-ui)** | Apache-2.0 | ✅ active, Boot 3.4/4.0 starters | ✅ starter, UI at `/db-scheduler` | ⚠️ reschedule/run now; recurring schedules are defined in code | ⚠️ `Schedules.cron(expr, ZoneId)` in code only | ✅ run now; ⚠️ no stop of a running task | ⚠️ failure messages/stack traces in history | ✅ optional execution-log table with duration | ❌ none built in; use a listener |
+| **[JobRunr](https://github.com/jobrunr/jobrunr) (OSS)** | LGPL-3.0 (OK if used unmodified as a library) | ✅ very active | ✅ embedded dashboard | ⚠️ recurring jobs defined in code | ⚠️ `ZoneId` per recurring job, in code only | ✅ trigger now; ⚠️ no stop | ✅ per-job logging/progress in dashboard | ✅ succeeded/failed jobs with timing | ❌ none built in; use a job filter |
+| **Custom UI on Spring Batch APIs** (`JobOperator`, `JobRepository`) + Quartz | Apache-2.0 (Spring) | ✅ Spring core projects | ✅ | ✅ (via Quartz API) | ✅ Quartz `CronScheduleBuilder.inTimeZone(...)` | ✅ incl. **graceful stop/restart of Spring Batch executions** | ✅ e.g. per-execution log via MDC (`jobExecutionId`) | ✅ full job/step history, read/write/skip counts | ✅ `JobExecutionListener` + email (see below) |
+| **Spring Boot Admin** | Apache-2.0 | ✅ | ❌ separate server app | ❌ | ❌ | ❌ | ✅ log file viewer | ❌ (metrics only) | ⚠️ status-change notifications (email etc.) via its server |
+| **Actuator + Micrometer (Prometheus/Grafana)** | Apache-2.0 | ✅ | ✅ (Grafana is external) | ❌ | ❌ | ❌ | ❌ | ⚠️ metrics/aggregates only | ⚠️ via Grafana/Alertmanager alerts (external) |
+
+### Notifications
+
+None of the embedded candidates sends emails out of the box. The scheduler-independent way is a Spring Batch
+`JobExecutionListener` that sends an email via `spring-boot-starter-mail` (`JavaMailSender`) in `afterJob(...)` when
+the status is `FAILED` (or on any other status). Because it hooks into Spring Batch itself, it also covers manual starts,
+and it runs inside the app with no extra service. Further channels (Slack, Teams, …) can be added the same way via webhooks.
+
+### UC4 / external scheduler integration
+
+Taking over scheduling with UC4 (Automic) later works best if **scheduling is kept separate from job execution** from the start:
+
+- **One entry point for starting jobs.** A small service wraps `JobOperator`. The internal scheduler (e.g. Quartz) only calls this service.
+  It never contains job logic.
+- **REST API for external schedulers** on top of that service, secured with a technical user:
+  - `POST` start job (with parameters), returning the `jobExecutionId`
+  - `GET` execution status and exit status, so UC4 can poll until the run reaches a final status (`COMPLETED`, `FAILED`, …)
+  - `POST` stop
+  
+  UC4 can call this via its web service agent, or via an OS job that runs `curl` and maps the final status to an exit code.
+- **Per-job "owner" switch** (internal scheduler vs. UC4). When UC4 takes over a job, its internal trigger is paused or removed
+  so the job isn't started twice.
+- **History, logs and notifications based on Spring Batch, not on the scheduler.** That way, runs started by UC4 still show up
+  in the UI and still trigger failure emails (`JobExecutionListener`).
+- `CommandLineJobOperator` (Spring Batch 6) is an alternative for UC4 OS jobs. However, it starts a new JVM per run instead of
+  using the running app, which conflicts with the embedded approach.
+
+Impact on the candidates:
+
+- **Quartz Manager:** only knows about runs started through Quartz. UC4-started runs would be invisible in its execution and log views,
+  unless UC4 triggers jobs through Quartz Manager's REST API instead of directly. Spring Batch history and notifications must
+  therefore come from the Spring Batch layer anyway.
+- **db-scheduler-ui / JobRunr:** same limitation; their history only covers their own executions.
+- **Custom UI on Spring Batch APIs:** sees all runs regardless of who started them; the best fit for this requirement.
 
 ### Excluded
 
@@ -145,13 +184,18 @@ No off-the-shelf OSS tool covers **both** Spring Batch internals (step history, 
 editable scheduling in one embedded UI. Most promising options:
 
 1. **Quartz + Quartz Manager** – closest out-of-the-box fit for scheduling, manual trigger and live logs.
-   Gaps: Spring Batch execution history and a proper Spring Batch stop/restart.
+   Gaps: Spring Batch execution history, a proper Spring Batch stop/restart and email notifications
+   (via a `JobExecutionListener`, see [Notifications](#notifications)).
    Jobs must extend `AbstractQuartzManagerJob`, a thin wrapper that calls `JobOperator`.
    Risk: small maintainer base.
 2. **Quartz + small custom UI on Spring Batch APIs** – full coverage of all requirements and no third-party UI dependency,
    at the cost of building and maintaining a few screens (job list, schedule editor, execution history, log view).
 3. **Hybrid** – Quartz Manager for scheduling plus a small custom page for Spring Batch execution history, stop/restart
    and logs.
+
+Whichever option is chosen, the UC4 requirement means the job start API, the execution history and the notifications
+should sit on the Spring Batch layer (`JobOperator`/`JobRepository`), not on the scheduler.
+That keeps the scheduler replaceable.
 
 Next step: build a spike of option 1 in this repo and check the gaps against option 2/3.
 
