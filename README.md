@@ -132,6 +132,7 @@ Maintenance data from GitHub as of 2026-10-14.
 | **Quartz + [Quartz Manager](https://github.com/fabioformosa/quartz-manager)** | Apache-2.0 | ✅ v5.x, Boot 3.5/4.0, small team | ✅ starter + webjar UI | ✅ cron/simple/calendar triggers, pause/resume | ✅ time zone field for cron and calendar-interval triggers (API + UI); ⚠️ not yet shown in the trigger detail view | ✅ trigger now; stop = scheduler standby/pause | ✅ live via WebSocket (`LogRecord`s from the job) | ⚠️ Quartz-level only, no Spring Batch step details | ❌ none built in; use a listener |
 | **[db-scheduler](https://github.com/kagkarlsson/db-scheduler) + [db-scheduler-ui](https://github.com/bekk/db-scheduler-ui)** | Apache-2.0 | ✅ active, Boot 3.4/4.0 starters | ✅ starter, UI at `/db-scheduler` | ⚠️ reschedule/run now; recurring schedules are defined in code | ⚠️ `Schedules.cron(expr, ZoneId)` in code only | ✅ run now; ⚠️ no stop of a running task | ⚠️ failure messages/stack traces in history | ✅ optional execution-log table with duration | ❌ none built in; use a listener |
 | **[JobRunr](https://github.com/jobrunr/jobrunr) (OSS)** | LGPL-3.0 (OK if used unmodified as a library) | ✅ very active | ✅ embedded dashboard | ⚠️ recurring jobs defined in code | ⚠️ `ZoneId` per recurring job, in code only | ✅ trigger now; ⚠️ no stop | ✅ per-job logging/progress in dashboard | ✅ succeeded/failed jobs with timing | ❌ none built in; use a job filter |
+| **Quartz + Quartz Manager + Spring Batch listener** (UC4 routed through Quartz) | Apache-2.0 | ✅ (see above) | ✅ | ✅ Quartz Manager UI | ✅ set in UI; ⚠️ not shown in trigger detail view | ✅ trigger now; ⚠️ stop = pause/standby, no graceful Spring Batch stop/restart | ✅ live via WebSocket | ⚠️ all runs visible (incl. UC4) but Quartz-level only, no step details | ✅ `JobExecutionListener` + email |
 | **Custom UI on Spring Batch APIs** (`JobOperator`, `JobRepository`) + Quartz | Apache-2.0 (Spring) | ✅ Spring core projects | ✅ | ✅ (via Quartz API) | ✅ Quartz `CronScheduleBuilder.inTimeZone(...)` | ✅ incl. **graceful stop/restart of Spring Batch executions** | ✅ e.g. per-execution log via MDC (`jobExecutionId`) | ✅ full job/step history, read/write/skip counts | ✅ `JobExecutionListener` + email (see below) |
 | **Spring Boot Admin** | Apache-2.0 | ✅ | ❌ separate server app | ❌ | ❌ | ❌ | ✅ log file viewer | ❌ (metrics only) | ⚠️ status-change notifications (email etc.) via its server |
 | **Actuator + Micrometer (Prometheus/Grafana)** | Apache-2.0 | ✅ | ✅ (Grafana is external) | ❌ | ❌ | ❌ | ❌ | ⚠️ metrics/aggregates only | ⚠️ via Grafana/Alertmanager alerts (external) |
@@ -165,8 +166,10 @@ Taking over scheduling with UC4 (Automic) later works best if **scheduling is ke
 Impact on the candidates:
 
 - **Quartz Manager:** only knows about runs started through Quartz. UC4-started runs would be invisible in its execution and log views,
-  unless UC4 triggers jobs through Quartz Manager's REST API instead of directly. Spring Batch history and notifications must
-  therefore come from the Spring Batch layer anyway.
+  unless **UC4 starts jobs through Quartz**. To do that, the start endpoint calls `Scheduler.triggerJob(...)` on the job's Quartz job
+  instead of calling `JobOperator` directly. Then every run (scheduled, manual, UC4) passes through Quartz and is visible in
+  Quartz Manager. UC4 can still poll status via Spring Batch: the wrapper job records the `jobExecutionId`, and the start
+  endpoint returns it. Notifications work in any case, because the `JobExecutionListener` sits on the Spring Batch layer.
 - **db-scheduler-ui / JobRunr:** same limitation; their history only covers their own executions.
 - **Custom UI on Spring Batch APIs:** sees all runs regardless of who started them; the best fit for this requirement.
 
@@ -183,11 +186,17 @@ Impact on the candidates:
 No off-the-shelf OSS tool covers **both** Spring Batch internals (step history, graceful stop, restart) **and**
 editable scheduling in one embedded UI. Most promising options:
 
-1. **Quartz + Quartz Manager** – closest out-of-the-box fit for scheduling, manual trigger and live logs.
-   Gaps: Spring Batch execution history, a proper Spring Batch stop/restart and email notifications
-   (via a `JobExecutionListener`, see [Notifications](#notifications)).
-   Jobs must extend `AbstractQuartzManagerJob`, a thin wrapper that calls `JobOperator`.
-   Risk: small maintainer base.
+1. **Quartz + Quartz Manager + Spring Batch listener, UC4 routed through Quartz** – least custom code.
+   - Quartz Manager covers scheduling (incl. time zones), manual trigger and live logs.
+   - A `JobExecutionListener` sends failure emails.
+   - The UC4 start endpoint triggers the Quartz job, so UC4 runs show up in Quartz Manager too
+     (see [UC4 / external scheduler integration](#uc4--external-scheduler-integration)).
+   - Remaining gaps: Spring Batch step-level history and a graceful Spring Batch stop/restart.
+   - Jobs must extend `AbstractQuartzManagerJob`, a thin wrapper that calls `JobOperator`.
+   - Risk: small maintainer base.
+   - Verified in the [PoC](poc-quartz-manager/README.md#findings): Quartz Manager does **not** keep past executions or
+     logs. Log records are only pushed live over WebSocket and are gone after a page reload. Its own scheduler is
+     RAM-only, but it can be pointed at a JDBC-backed Spring Boot Quartz scheduler.
 2. **Quartz + small custom UI on Spring Batch APIs** – full coverage of all requirements and no third-party UI dependency,
    at the cost of building and maintaining a few screens (job list, schedule editor, execution history, log view).
 3. **Hybrid** – Quartz Manager for scheduling plus a small custom page for Spring Batch execution history, stop/restart
@@ -197,7 +206,8 @@ Whichever option is chosen, the UC4 requirement means the job start API, the exe
 should sit on the Spring Batch layer (`JobOperator`/`JobRepository`), not on the scheduler.
 That keeps the scheduler replaceable.
 
-Next step: build a spike of option 1 in this repo and check the gaps against option 2/3.
+Next step: check the gaps of option 1 against option 2/3.
+Option 1 is implemented as a runnable spike in [`poc-quartz-manager/`](poc-quartz-manager/README.md).
 
 ## References
 
