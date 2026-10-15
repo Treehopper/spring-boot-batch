@@ -77,7 +77,20 @@ for domain in \
     "statsig.com" \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
-    "update.code.visualstudio.com"; do
+    "update.code.visualstudio.com" \
+    "raw.githubusercontent.com" \
+    "objects.githubusercontent.com" \
+    "www.quartz-scheduler.org" \
+    "www.jobrunr.io" \
+    "spring.io" \
+    "docs.spring.io" \
+    "docs.spring-boot-admin.com" \
+    "micrometer.io" \
+    "docs.micrometer.io" \
+    "prometheus.io" \
+    "grafana.com" \
+    "central.sonatype.com" \
+    "search.maven.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -134,7 +147,7 @@ else
 fi
 
 # Verify GitHub API access
-if ! curl --connect-timeout 5 https://api.github.com/zen >/dev/null 2>&1; then
+if ! curl --connect-timeout 5 --retry 3 --retry-delay 2 --retry-all-errors https://api.github.com/zen >/dev/null 2>&1; then
     echo "ERROR: Firewall verification failed - unable to reach https://api.github.com"
     exit 1
 else
