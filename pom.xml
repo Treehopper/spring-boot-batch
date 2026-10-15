@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Builds all PoCs. Each module is a standalone Spring Boot project; this pom only aggregates them. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>spring-batch-scheduling-pocs</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Spring Batch scheduling PoCs</name>
+
+  <modules>
+    <module>poc-common</module>
+    <module>poc-quartz-manager</module>
+    <module>poc-db-scheduler</module>
+    <module>poc-jobrunr</module>
+  </modules>
+</project>

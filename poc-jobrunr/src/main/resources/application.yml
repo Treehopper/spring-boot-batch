@@ -1,0 +1,74 @@
+server:
+  port: 8080
+
+spring:
+  web:
+    error:
+      # error responses carry the reason (e.g. "invalid cron expression"), which the batch console shows
+      include-message: always
+  application:
+    name: poc-jobrunr
+  datasource:
+    # File-based, so Spring Batch history, schedules and JobRunr's jobs survive restarts. Delete ./data to start fresh.
+    url: jdbc:h2:file:./data/batch;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+  batch:
+    job:
+      enabled: false # never run jobs on startup; JobRunr or the API starts them
+    jdbc:
+      initialize-schema: always
+  sql:
+    init:
+      mode: always # schema.sql: the batch_schedule table
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  mail:
+    # Mailpit (see poc-quartz-manager/compose.yaml or `brew install mailpit`): SMTP on 1025, web UI on :8025
+    host: localhost
+    port: 1025
+
+jobrunr:
+  background-job-server:
+    enabled: true
+    # One worker per job that may run at the same time. Each JobRunr job blocks its worker for the whole batch run.
+    worker-count: 4
+    # How quickly JobRunr picks up due and enqueued jobs (minimum 5 s)
+    poll-interval-in-seconds: 5
+  dashboard:
+    enabled: true
+    port: 8000
+  jobs:
+    # Batch failures are handled by Spring Batch (status, notification), never retried by JobRunr
+    default-number-of-retries: 0
+  miscellaneous:
+    allow-anonymous-data-usage: false
+
+poc:
+  api:
+    # Technical user for the external-scheduler (UC4) API
+    user: uc4
+    password: uc4-secret
+    start-timeout: 10s
+  execution-logs:
+    # One log file per Spring Batch execution (<dir>/<jobExecutionId>.log), shown in the batch console
+    dir: data/execution-logs
+  notification:
+    notify-on: FAILED,STOPPED
+    from: batch@example.com
+    to: ops@example.com
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    mail:
+      enabled: false # don't report DOWN just because no SMTP server is running locally
+
+logging:
+  pattern:
+    level: "%5p [exec=%X{jobExecutionId:-}]"

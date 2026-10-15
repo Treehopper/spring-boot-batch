@@ -18,6 +18,9 @@ Evaluation of options for **controlling** and **monitoring** Spring Batch jobs r
   - [UC4 / external scheduler integration](#uc4--external-scheduler-integration)
   - [Excluded](#excluded)
 - [Assessment](#assessment)
+- [Proofs of concept](#proofs-of-concept)
+  - [Run a PoC](#run-a-poc)
+  - [Comparison](#comparison)
 - [References](#references)
 
 ## Development environment (devcontainer)
@@ -130,8 +133,8 @@ Maintenance data from GitHub as of 2026-10-14.
 | Candidate | Licence | Maintained | Embedded | Edit schedule | Time zones | Start / stop | Logs | Past executions / runtime | Notifications |
 |-----------|---------|------------|:--------:|:-------------:|:----------:|:------------:|:----:|:-------------------------:|:-------------:|
 | **Quartz + [Quartz Manager](https://github.com/fabioformosa/quartz-manager)** | Apache-2.0 | ✅ v5.x, Boot 3.5/4.0, small team | ✅ starter + webjar UI | ✅ cron/simple/calendar triggers, pause/resume | ✅ time zone field for cron and calendar-interval triggers (API + UI); ⚠️ not yet shown in the trigger detail view | ✅ trigger now; stop = scheduler standby/pause | ✅ live via WebSocket (`LogRecord`s from the job) | ⚠️ Quartz-level only, no Spring Batch step details | ❌ none built in; use a listener |
-| **[db-scheduler](https://github.com/kagkarlsson/db-scheduler) + [db-scheduler-ui](https://github.com/bekk/db-scheduler-ui)** | Apache-2.0 | ✅ active, Boot 3.4/4.0 starters | ✅ starter, UI at `/db-scheduler` | ⚠️ reschedule/run now; recurring schedules are defined in code | ⚠️ `Schedules.cron(expr, ZoneId)` in code only | ✅ run now; ⚠️ no stop of a running task | ⚠️ failure messages/stack traces in history | ✅ optional execution-log table with duration | ❌ none built in; use a listener |
-| **[JobRunr](https://github.com/jobrunr/jobrunr) (OSS)** | LGPL-3.0 (OK if used unmodified as a library) | ✅ very active | ✅ embedded dashboard | ⚠️ recurring jobs defined in code | ⚠️ `ZoneId` per recurring job, in code only | ✅ trigger now; ⚠️ no stop | ✅ per-job logging/progress in dashboard | ✅ succeeded/failed jobs with timing | ❌ none built in; use a job filter |
+| **[db-scheduler](https://github.com/kagkarlsson/db-scheduler) + [db-scheduler-ui](https://github.com/bekk/db-scheduler-ui)** | Apache-2.0 | ✅ active, Boot 3.4/4.0 starters | ✅ starter, UI at `/db-scheduler` | ⚠️ recurring schedules are defined in code by default; ✅ runtime-editable with `RecurringTaskWithPersistentSchedule` and a small backend ([PoC](poc-db-scheduler/README.md)); ⚠️ not while a run is in progress | ✅ `CronSchedule(expr, ZoneId)` per schedule, editable at runtime in the PoC; Quartz cron syntax available | ✅ run now; ⚠️ no stop of a running task | ⚠️ failure messages/stack traces in history | ✅ optional execution-log table with duration | ❌ none built in; use a listener |
+| **[JobRunr](https://github.com/jobrunr/jobrunr) (OSS)** | LGPL-3.0 (OK if used unmodified as a library) | ✅ very active | ✅ embedded dashboard | ⚠️ recurring jobs defined in code by default; ✅ `scheduleRecurrently` at runtime plus an own schedule table ([PoC](poc-jobrunr/README.md)); ⚠️ no pause in OSS, pitfalls when replacing a recurring job | ✅ `ZoneId` per recurring job, editable at runtime in the PoC; ⚠️ Unix cron without "nth weekday" | ✅ trigger now; ⚠️ no stop | ✅ per-job logging/progress in dashboard | ✅ succeeded/failed jobs with timing | ❌ none built in; use a job filter |
 | **Quartz + Quartz Manager + Spring Batch listener** (UC4 routed through Quartz) | Apache-2.0 | ✅ (see above) | ✅ | ✅ Quartz Manager UI | ✅ set in UI; ⚠️ not shown in trigger detail view | ✅ trigger now; ⚠️ stop = pause/standby, no graceful Spring Batch stop/restart | ✅ live via WebSocket | ⚠️ all runs visible (incl. UC4) but Quartz-level only, no step details | ✅ `JobExecutionListener` + email |
 | **Custom UI on Spring Batch APIs** (`JobOperator`, `JobRepository`) + Quartz | Apache-2.0 (Spring) | ✅ Spring core projects | ✅ | ✅ (via Quartz API) | ✅ Quartz `CronScheduleBuilder.inTimeZone(...)` | ✅ incl. **graceful stop/restart of Spring Batch executions** | ✅ e.g. per-execution log via MDC (`jobExecutionId`) | ✅ full job/step history, read/write/skip counts | ✅ `JobExecutionListener` + email (see below) |
 | **Spring Boot Admin** | Apache-2.0 | ✅ | ❌ separate server app | ❌ | ❌ | ❌ | ✅ log file viewer | ❌ (metrics only) | ⚠️ status-change notifications (email etc.) via its server |
@@ -206,10 +209,82 @@ Whichever option is chosen, the UC4 requirement means the job start API, the exe
 should sit on the Spring Batch layer (`JobOperator`/`JobRepository`), not on the scheduler.
 That keeps the scheduler replaceable.
 
-Next step: check the gaps of option 1 against option 2/3.
-Option 1 is implemented as a runnable spike in [`poc-quartz-manager/`](poc-quartz-manager/README.md).
-It also contains a small custom React UI next to the Quartz Manager UI, as a spike of option 3 (hybrid):
-schedules via the Quartz Manager API, and execution history, logs and stop via Spring Batch.
+All three schedulers can be driven by the same small custom UI. db-scheduler and JobRunr were listed with
+"recurring schedules in code" as their main disadvantage. The [proofs of concept](#proofs-of-concept) show that both
+can be changed at runtime, including a time zone per schedule, with a small backend of a few classes. Each has
+caveats, though (see [Comparison](#comparison)).
+
+## Proofs of concept
+
+Four Maven modules, one Spring Boot app per scheduler, all with the same demo Spring Batch jobs and the same custom UI:
+
+| Module | What |
+|--------|------|
+| [`poc-common`](poc-common/README.md) | Shared: demo Spring Batch jobs, single start entry point, execution history and per-execution logs, failure emails, the external-scheduler (UC4) API, and the **Batch Console**, a small React UI covering the UI requirements (schedules with a recurrence builder and time zones, run now, stop, history, logs) |
+| [`poc-quartz-manager`](poc-quartz-manager/README.md) | Option 1: Quartz + Quartz Manager, with the Quartz Manager UI next to the Batch Console (which also makes it a spike of option 3) |
+| [`poc-db-scheduler`](poc-db-scheduler/README.md) | db-scheduler with runtime-editable schedules, db-scheduler-ui next to the Batch Console |
+| [`poc-jobrunr`](poc-jobrunr/README.md) | JobRunr OSS with runtime-editable schedules, JobRunr dashboard next to the Batch Console |
+
+### Run a PoC
+
+Prerequisites: Java 21+ and Maven. No Node.js installation is needed: on the first build, Maven downloads Node.js
+and npm for the Batch Console into `poc-common/frontend/node/` (see [poc-common](poc-common/README.md#building-the-frontend)).
+Inside the devcontainer, the firewall blocks nodejs.org; add it to `.devcontainer/init-firewall.sh` on the host, or
+build with `-Dskip.frontend`.
+
+From the repository root, one PoC at a time (all use port 8080):
+
+```sh
+mvn -pl poc-quartz-manager -am spring-boot:run
+mvn -pl poc-db-scheduler -am spring-boot:run
+mvn -pl poc-jobrunr -am spring-boot:run
+
+mvn install                                     # build and test everything
+```
+
+Then open the Batch Console at http://localhost:8080/batch-console/. Each PoC's README lists its other endpoints.
+`-am` also builds `poc-common`. Running from a module folder (`cd poc-jobrunr && mvn spring-boot:run`) works too,
+after `mvn install -pl poc-common` has put `poc-common` into the local Maven repository.
+
+**Notification mails** need a local SMTP server on port 1025; without one, the apps still work and only log the
+failed delivery. Options:
+
+```sh
+brew install mailpit && mailpit           # macOS: SMTP on 1025, web UI on http://localhost:8025
+docker compose -f poc-quartz-manager/compose.yaml up -d    # the same Mailpit with Docker (or docker-compose with Colima)
+
+# no Docker, e.g. in the devcontainer: GreenMail, API and mail list on http://localhost:8099
+curl -sfO https://repo1.maven.org/maven2/com/icegreen/greenmail-standalone/2.1.14/greenmail-standalone-2.1.14.jar
+java -Dgreenmail.smtp.port=1025 -Dgreenmail.smtp.hostname=127.0.0.1 -Dgreenmail.auth.disabled \
+     -Dgreenmail.api.port=8099 -Dgreenmail.api.hostname=127.0.0.1 -jar greenmail-standalone-2.1.14.jar
+```
+
+On macOS with Colima, `docker compose` (with a space) needs
+`"cliPluginsExtraDirs": ["<output of brew --prefix>/lib/docker/cli-plugins"]` in `~/.docker/config.json`; add the
+entry to the existing file rather than replacing it, which would drop the `colima` context. `mvn -v` shows the JDK
+Maven uses; it must be Java 21 or newer.
+
+### Comparison
+
+What the PoCs showed, for the requirements that differ between the schedulers. History, logs, stop, notifications and
+the UC4 API are the same in all three, because they sit on Spring Batch (`poc-common`).
+
+| | Quartz + Quartz Manager | db-scheduler | JobRunr OSS |
+|---|---|---|---|
+| Change schedules at runtime | ✅ Quartz triggers, via Quartz Manager API | ✅ schedule stored as task data, `reschedule` with new data | ✅ `scheduleRecurrently` at runtime |
+| Pause / resume | ✅ native | ⚠️ not native; "never" schedule in the task data | ⚠️ not in OSS; own schedule table, recurring job deleted / re-created |
+| Change while a run is in progress | ✅ | ❌ refused by db-scheduler (`409`, retry after the run) | ✅ |
+| Time zone per schedule | ✅ | ✅ | ✅ |
+| Cron syntax | Quartz, incl. "second Tuesday", "last Friday" | Quartz (via cron-utils) | Unix-style: "last Friday" yes, "second Tuesday" no |
+| Extra state besides the scheduler's tables | – | – | `batch_schedule` table |
+| Pitfalls found | Quartz Manager: RAM-only scheduler, reschedule un-pauses, bare `500` for invalid cron, page refresh 404 (all worked around) | disabled cron schedule throws; running instances hidden by default; Java-serialized task data | pre-planned runs survive replacing or deleting a recurring job; an edited schedule can be ignored until the old next run (worked around with a new id per change) |
+| Start latency (run now, UC4) | immediate | immediate (immediate execution enabled) | up to the poll interval (5 s minimum) |
+| Same job started twice at once | queued (`@DisallowConcurrentExecution`) | runs in parallel | recurring: skipped while the previous run is pending; manual: parallel |
+| Own UI next to the Batch Console | Quartz Manager UI (in the app) | db-scheduler-ui (in the app) | dashboard on a separate port, outside Spring Security |
+| Licence | Apache-2.0 | Apache-2.0 | LGPL-3.0 |
+
+Details and the reasoning behind each point: findings in [poc-quartz-manager](poc-quartz-manager/README.md#findings),
+[poc-db-scheduler](poc-db-scheduler/README.md#findings) and [poc-jobrunr](poc-jobrunr/README.md#findings).
 
 ## References
 

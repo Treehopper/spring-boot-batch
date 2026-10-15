@@ -53,7 +53,7 @@ public class SpringBatchQuartzJobRunner {
       : UUID.randomUUID().toString();
     String startedBy = data.containsKey(BatchJobStarter.STARTED_BY)
       ? data.getString(BatchJobStarter.STARTED_BY)
-      : (isManualTrigger(triggerKey) ? "manual" : "trigger:" + triggerKey);
+      : (isManualTrigger(triggerKey) ? BatchJobStarter.STARTED_BY_MANUAL : BatchJobStarter.STARTED_BY_SCHEDULE + triggerKey);
 
     List<String> otherTriggers = otherTriggersOfJob(context);
     LogRecord logRecord;

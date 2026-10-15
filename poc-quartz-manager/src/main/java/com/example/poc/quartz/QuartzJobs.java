@@ -51,20 +51,18 @@ public class QuartzJobs implements ApplicationRunner {
 
   @Override
   public void run(ApplicationArguments args) throws SchedulerException {
-    register(ImportCustomersQuartzJob.class, BatchJobsConfig.IMPORT_CUSTOMERS_JOB,
-      "Imports customers (demo chunk job)", "0 0/2 * * * ?", "Europe/Vienna");
-    register(CleanupQuartzJob.class, BatchJobsConfig.CLEANUP_JOB,
-      "Nightly cleanup (demo tasklet job)", "0 30 2 * * ?", "America/New_York");
+    register(ImportCustomersQuartzJob.class, BatchJobsConfig.IMPORT_CUSTOMERS_JOB, "0 0/2 * * * ?", "Europe/Vienna");
+    register(CleanupQuartzJob.class, BatchJobsConfig.CLEANUP_JOB, "0 30 2 * * ?", "America/New_York");
   }
 
-  private void register(Class<? extends AbstractQuartzManagerJob> jobClass, String batchJobName, String description,
-                        String cron, String timeZone) throws SchedulerException {
+  private void register(Class<? extends AbstractQuartzManagerJob> jobClass, String batchJobName, String cron,
+                        String timeZone) throws SchedulerException {
     JobKey jobKey = jobKey(batchJobName);
     if (scheduler.checkExists(jobKey))
       return;
     JobDetail job = JobBuilder.newJob(jobClass)
       .withIdentity(jobKey)
-      .withDescription(description)
+      .withDescription(BatchJobsConfig.JOB_DESCRIPTIONS.get(batchJobName))
       .usingJobData(QuartzJobs.OWNER, JobOwner.INTERNAL.name())
       .storeDurably()
       .build();

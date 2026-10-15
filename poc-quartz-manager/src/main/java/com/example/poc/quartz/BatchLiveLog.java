@@ -1,6 +1,5 @@
 package com.example.poc.quartz;
 
-import com.example.poc.config.PocProperties;
 import com.example.poc.launch.BatchJobStarter;
 import it.fabioformosa.quartzmanager.api.jobs.entities.LogRecord;
 import it.fabioformosa.quartzmanager.api.jobs.entities.LogRecord.LogType;
@@ -43,9 +42,9 @@ public class BatchLiveLog implements JobExecutionListener, StepExecutionListener
   private final int chunkEvery;
   private final Map<String, List<String>> topicsByRequestId = new ConcurrentHashMap<>();
 
-  public BatchLiveLog(WebhookSender<LogRecord> webSocketLogsNotifier, PocProperties properties) {
+  public BatchLiveLog(WebhookSender<LogRecord> webSocketLogsNotifier, LiveLogProperties properties) {
     this.webSocketLogsNotifier = webSocketLogsNotifier;
-    this.chunkEvery = Math.max(1, properties.liveLog().chunkEvery());
+    this.chunkEvery = Math.max(1, properties.chunkEvery());
   }
 
   /** Starts streaming events of the run with this request id to the given trigger names. */

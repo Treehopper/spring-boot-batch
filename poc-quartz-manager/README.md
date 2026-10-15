@@ -6,99 +6,46 @@ with external (UC4) starts routed through Quartz.
 
 It contains two UIs side by side:
 - the **Quartz Manager UI** (`/quartz-manager-ui/`), as shipped by the library
-- a small custom **Batch Console** in React (`/batch-console/`), which covers exactly the UI requirements: schedules
-  with time zones, start/stop, logs and past executions. See [Batch Console](#batch-console).
+- the **Batch Console** (`/batch-console/`), a small custom React UI that covers exactly the UI requirements:
+  schedules with time zones, start/stop, logs and past executions. It is shared with the db-scheduler and JobRunr
+  PoCs and described in [poc-common](../poc-common/README.md#batch-console).
 
-Stack: Spring Boot 4.0.6, Spring Batch 6.0, Quartz 2.5 (JDBC job store), Quartz Manager 5.0.1, H2 (file DB), Java 21+,
-React 19 + Vite + TypeScript for the Batch Console.
+Stack: Spring Boot 4.0.6, Spring Batch 6.0, Quartz 2.5 (JDBC job store), Quartz Manager 5.0.1, H2 (file DB), Java 21+.
+The Spring Batch jobs, the Batch Console, the UC4 API and the notifications come from
+[poc-common](../poc-common/README.md); this module adds Quartz and Quartz Manager.
 
 ## Run it
 
-Prerequisites: Java 21+ and Maven. No Node.js installation is needed: for the Batch Console, the Maven build
-(`frontend-maven-plugin`) downloads Node.js (from nodejs.org) and npm (from the npm registry) into `frontend/node/` on
-the first build, then runs `npm install`, `npm run build` and, in the `test` phase, the frontend unit tests (`npm test`). `-Dskip.frontend` skips the frontend build, e.g. when only Java
-code changed; the console is then served from an earlier build in `target/`, or not at all after `mvn clean`.
-To receive the notification mails you also need a local SMTP server on port 1025 (see below).
-
-Inside the devcontainer, the firewall blocks nodejs.org. Add `nodejs.org` to the domain list in
-`.devcontainer/init-firewall.sh` on the host and restart the container, or build with `-Dskip.frontend` there.
+From the repository root (prerequisites, mail server and macOS notes: [Run a PoC](../README.md#run-a-poc)):
 
 ```sh
-cd poc-quartz-manager
-
-# optional: SMTP server that catches mails, web UI on http://localhost:8025 (needs Docker, so run it on the host)
-docker compose up -d
-
-mvn spring-boot:run
+mvn -pl poc-quartz-manager -am spring-boot:run
 ```
-
-Without Docker (e.g. inside the devcontainer), use GreenMail instead. Its API UI on http://localhost:8099 lists the
-received mails (`GET /api/user/ops@example.com/messages/INBOX/`).
-
-```sh
-curl -sfO https://repo1.maven.org/maven2/com/icegreen/greenmail-standalone/2.1.14/greenmail-standalone-2.1.14.jar
-java -Dgreenmail.smtp.port=1025 -Dgreenmail.smtp.hostname=127.0.0.1 -Dgreenmail.auth.disabled \
-     -Dgreenmail.api.port=8099 -Dgreenmail.api.hostname=127.0.0.1 -jar greenmail-standalone-2.1.14.jar
-```
-
-If no SMTP server is running, the app still works. The failed mail delivery is only logged.
 
 The app listens on http://localhost:8080; see [Endpoints](#endpoints) for the UIs and APIs.
-State (Spring Batch history and Quartz schedules) lives in `./data`. Delete it for a fresh start.
-
-### macOS
-
-The app runs directly on the Mac JVM. Docker is only used for Mailpit, and Mailpit is also available from Homebrew,
-so neither Docker nor Colima is needed:
-
-```sh
-brew install maven jq mailpit   # maven pulls in a current OpenJDK (21+ is required)
-
-mailpit                         # terminal 1: SMTP on localhost:1025, web UI on http://localhost:8025
-
-cd poc-quartz-manager
-mvn spring-boot:run             # terminal 2
-./smoke-test.sh                 # terminal 3; works with the macOS default bash 3.2
-```
-
-`mvn -v` shows the JDK Maven uses; it must be Java 21 or newer.
-
-To run Mailpit in a container with Colima instead, install Compose as well:
-
-```sh
-brew install colima docker docker-compose
-colima start                    # also switches the docker context to "colima"
-docker-compose up -d            # Mailpit has linux/arm64 and linux/amd64 images; Colima forwards the ports to localhost
-```
-
-`docker compose` (with a space) also works once `~/.docker/config.json` contains
-`"cliPluginsExtraDirs": ["<output of brew --prefix>/lib/docker/cli-plugins"]`. Add that entry to the existing file
-rather than replacing the file, which would drop the `colima` context.
-
+State (Spring Batch history, Quartz schedules, execution logs) lives in `poc-quartz-manager/data`. Delete it for a
+fresh start.
 
 ### Automated checks
 
 ```sh
-mvn test             # integration tests: start via API, failure mail, graceful stop, owner switch, ...
-./smoke-test.sh      # against the running app (needs curl and jq): walks through the API scenarios below
+mvn -pl poc-quartz-manager -am test    # integration tests: start via API, failure mail, graceful stop, owner switch, ...
+poc-quartz-manager/smoke-test.sh       # against the running app (needs curl and jq): walks through the UC4 API
 ```
 
 ## What's in it
 
 ```
  Quartz Manager UI ──┐                                         ┌── JobExecutionListener: email on FAILED/STOPPED
+ Batch Console ──────┤
  cron triggers ──────┼─► Quartz job ─► BatchJobStarter ─► JobOperator.start(...) ─► Spring Batch job
- UC4: POST /api/... ─┘  (one per          (single entry point)                    └── JobRepository (BATCH_* tables)
+ UC4: POST /api/... ─┘  (one per          (poc-common)                            └── JobRepository (BATCH_* tables)
                         batch job)
  UC4: GET status / POST stop ───────────────────────────► JobRepository / JobOperator
 ```
 
-- **Two demo jobs:** `importCustomersJob` (chunk step; cron `0 0/2 * * * ?` in `Europe/Vienna`) and `cleanupJob`
-  (tasklet; cron `0 30 2 * * ?` in `America/New_York`). The seeded schedules show the per-trigger time zone.
-  Job parameters control the behaviour of `importCustomersJob`:
-  - `itemCount` (default 20)
-  - `itemDelayMs` (default 200), to make runs long enough to stop
-  - `failAtItem`, to make a run fail
+- **Seeded schedules:** `importCustomersJob` with cron `0 0/2 * * * ?` in `Europe/Vienna`, and `cleanupJob` with cron
+  `0 30 2 * * ?` in `America/New_York`. They show the per-trigger time zone.
 - **Quartz jobs** (`quartz/jobs`) extend `AbstractQuartzManagerJob`. Each one is three lines that delegate to
   `SpringBatchQuartzJobRunner`, which:
   - starts the batch job via `BatchJobStarter`, the only class that calls `JobOperator`
@@ -122,10 +69,10 @@ mvn test             # integration tests: start via API, failure mail, graceful 
 - **Persistence:** Quartz uses Spring Boot's JDBC job store in the same H2 DB, so schedules edited in the UI survive restarts.
   Quartz Manager's own scheduler (RAM only) is disabled, and Boot's scheduler is aliased to `quartzManagerScheduler`
   (`QuartzConfig`).
-- **Notifications:** `JobNotificationListener` sends an email for the statuses in `poc.notification.notify-on`
-  (default `FAILED,STOPPED`). The mail contains the parameters, step counts and the root cause.
-- **UC4 API** for an external scheduler: start through Quartz, poll status, stop, hand over scheduling.
-  See [UC4 API](#uc4-api-api).
+- **Shared parts** from [poc-common](../poc-common/README.md): failure notifications, execution logs, the Batch
+  Console and the UC4 API. `QuartzSchedulerSupport` plugs Quartz into them: the cron check uses Quartz's
+  `CronExpression`, and "run now" and UC4 starts go through `Scheduler.triggerJob`.
+- **UC4 owner switch** (Quartz only): hands a job's scheduling over to UC4, see [UC4 API](#uc4-api-and-batch-console-api).
 
 ## Endpoints
 
@@ -135,46 +82,23 @@ Everything runs on http://localhost:8080. There is no page at `/`.
 
 | What | URL | Login |
 |------|-----|-------|
-| Batch Console (custom React UI) | http://localhost:8080/batch-console/ | none (see [Security](#security)) |
+| Batch Console (custom React UI, [poc-common](../poc-common/README.md#batch-console)) | http://localhost:8080/batch-console/ | none (see [Security](#security)) |
 | Quartz Manager UI | http://localhost:8080/quartz-manager-ui/ | none |
 | Swagger UI: all REST endpoints below, with "Try it out" | http://localhost:8080/swagger-ui/index.html (or `/swagger-ui.html`) | the browser asks for `uc4` / `uc4-secret` when you call `/api/**` |
 | H2 console: `BATCH_*` (Spring Batch history) and `QRTZ_*` (Quartz schedules) tables | http://localhost:8080/h2-console | JDBC URL `jdbc:h2:file:./data/batch;AUTO_SERVER=TRUE`, user `sa`, empty password |
-| Mailpit: caught notification mails (if running) | http://localhost:8025 | none |
-| GreenMail API: alternative to Mailpit (if running) | http://localhost:8099 | none |
 
-### UC4 API (`/api/**`)
+### UC4 API and Batch Console API
 
-For an external scheduler. HTTP basic with the technical user `uc4` / `uc4-secret` (`poc.api.*` in `application.yml`).
+Shared by all PoCs, see [poc-common](../poc-common/README.md#apis). Here, UC4 starts and "run now" go through Quartz
+(`Scheduler.triggerJob`), so every run passes the same Quartz job as scheduled runs and shows up in Quartz Manager.
+The console reads and changes schedules through the Quartz Manager API, not the neutral `/batch-console/api/schedules`.
+
+Quartz-only additions to the UC4 API (HTTP basic, `uc4` / `uc4-secret`):
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/jobs/{job}/start` (body: parameters as JSON object) | Starts the job **through Quartz** (`Scheduler.triggerJob`). Waits up to 5 s for the execution and returns `202` with `jobExecutionId`. If the run is queued (e.g. a previous run is still active), `jobExecutionId` is `null` and `statusUrl` points to `/api/requests/{requestId}`. |
-| `GET /api/requests/{requestId}` | Resolves a queued start to its `jobExecutionId` |
-| `GET /api/executions/{id}` | Status, exit code, duration, parameters and step counts, for UC4 to poll |
-| `POST /api/executions/{id}/stop` | Graceful Spring Batch stop (`409` if not running) |
-| `GET /api/jobs/{job}` | Owner and Quartz triggers |
+| `GET /api/jobs/{job}` | Owner and Quartz triggers (key, state, cron, time zone, next fire time) |
 | `PUT /api/jobs/{job}/owner` (`{"owner":"UC4"}` or `"INTERNAL"`) | Hands scheduling to UC4: pauses the job's triggers. A guard also skips scheduled fires while UC4 owns the job, in case someone resumes a trigger in the UI. Manual "trigger now" and API starts still run. |
-
-```sh
-curl -u uc4:uc4-secret -H 'Content-Type: application/json' \
-     -d '{"itemCount":"50","itemDelayMs":"500"}' localhost:8080/api/jobs/importCustomersJob/start
-curl -u uc4:uc4-secret localhost:8080/api/executions/1
-curl -u uc4:uc4-secret -X POST localhost:8080/api/executions/1/stop
-```
-
-### Batch Console API (`/batch-console/api/**`)
-
-Backend of the Batch Console for what Quartz Manager doesn't offer. Built on Spring Batch (`JobRepository`,
-`JobOperator`). No login in this PoC.
-
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /batch-console/api/executions?jobName=&limit=50` | Latest executions, newest first, with status, who started them, start/end, duration, parameters and steps |
-| `GET /batch-console/api/executions/{id}` | One execution, same fields |
-| `GET /batch-console/api/executions/{id}/log` | The execution's log lines (plain text), see [Batch Console](#batch-console) |
-| `POST /batch-console/api/executions/{id}/stop` | Graceful Spring Batch stop (`409` if not running) |
-| `GET /batch-console/api/cron-preview?expression=&timeZone=` | Checks a Quartz cron expression and time zone, returns the next 5 fire times |
-| `GET /batch-console/api/server` | The server's default time zone, shown in the console for comparison |
 
 ### Quartz Manager API (`/quartz-manager/**`)
 
@@ -211,84 +135,9 @@ STOMP over SockJS. The run events from [What's in it](#whats-in-it) arrive here.
 
 ## Batch Console
 
-A deliberately small custom UI in React (`frontend/`), side by side with the Quartz Manager UI. It implements only
-what the [UI requirement](../README.md#requirements) asks for, and nothing else:
-
-| Requirement | In the Batch Console | Backend used |
-|-------------|----------------------|--------------|
-| Change schedules at runtime, incl. time zone per schedule | **Schedules**: per job its cron triggers in words ("Every weekday (Mon–Fri) at 06:45") and as cron, with time zone, state and next run (in the schedule's zone and in local time). **Edit** opens a recurrence builder, see below. | Quartz Manager API: `GET /jobs`, `GET` and `PUT /triggers/{group}/{name}`; cron check: `GET /batch-console/api/cron-preview` |
-| Manual start | **Run now** per job. The new execution opens automatically. | Quartz Manager API: `POST /jobs/{group}/{name}/trigger` |
-| Manual stop | **Stop** on a running execution: graceful Spring Batch stop. **Pause/Resume** per schedule. | `POST /batch-console/api/executions/{id}/stop`; Quartz Manager API: `POST /triggers/{group}/{name}/pause` and `/resume` |
-| View logs | **Log** of each execution, stored per execution, so also for past runs and after a restart. Refreshed every 2 s while the run is in progress. | `GET /batch-console/api/executions/{id}/log` |
-| View past executions and their runtime | **Executions**: every run with status, who started it (schedule, manual, UC4 API), start and duration, filterable by job. **Details**: parameters, steps with read/write/skip/commit/rollback counts and duration, exit description. | `GET /batch-console/api/executions`, `GET /batch-console/api/executions/{id}` |
-
-Left out on purpose, because no requirement needs it:
-- creating or deleting jobs and triggers
-- simple, daily and calendar-interval triggers, and Quartz calendars
-- misfire settings (edited schedules use "do nothing": a missed run is skipped)
-- scheduler start, standby and shutdown
-- Quartz job data and job parameters for manual starts
-- restarting failed executions
-- the UC4 owner switch (stays in the UC4 API)
-- the live WebSocket events (the console polls instead)
-
-**How the logs work:** every log statement during a run carries the MDC value `jobExecutionId` (set by
-`LaunchTrackingListener`). `logback-spring.xml` routes those events with a `SiftingAppender` into one file per
-execution, `data/execution-logs/<jobExecutionId>.log` (`poc.execution-logs.dir`). The console reads the file through the
-console API. This includes Spring Batch's own messages, the job's log output, exceptions with stack traces and the
-notification mail result. The files keep the full timestamp with offset; the console shows each line in the
-browser's time zone as `yyyy-MM-dd HH:mm:ss`, without milliseconds and thread name (`frontend/src/logFormat.ts`).
-
-**Layout:** the execution list shows the latest 3 executions and scrolls for more. The selected execution opens below
-it, and its log takes the remaining height of the window, at full width. Files are not cleaned up yet; a real setup needs a retention rule, or a log store such as
-Loki or Elasticsearch filtered by `jobExecutionId`.
-
-**Recurrence builder:** like the recurrence dialog in Outlook. Choose how often, then the details, and the builder
-writes the Quartz cron expression:
-
-| Repeat | Details | Cron, e.g. |
-|--------|---------|------------|
-| Every few minutes | every 1, 2, 5, 10, 15, 20 or 30 minutes | `0 0/15 * * * ?` |
-| Hourly | every 1, 2, 3, 4, 6, 8 or 12 hours, at minute m (counted from midnight) | `0 5 0/6 * * ?` |
-| Daily | time | `0 30 2 * * ?` |
-| Every weekday (Mon–Fri) | time | `0 45 6 ? * MON-FRI` |
-| Weekly | days of the week, time | `0 15 7 ? * MON,WED,FRI` |
-| Monthly, on a day of the month | day 1–31 or the last day, time | `0 0 0 15 * ?`, `0 59 23 L * ?` |
-| Monthly, on a weekday | first, second, third, fourth or last Monday … Sunday, time | `0 0 9 ? * 3#2` (second Tuesday), `0 0 9 ? * 6L` (last Friday) |
-| Custom cron expression | any Quartz expression; "edit as cron" turns a built one into a starting point | |
-
-Opening an existing schedule fills in the builder from its expression. Expressions that don't fit any of the shapes
-above open as "Custom". Before saving, Quartz checks the expression on the server and the editor lists the next three
-runs in the schedule's time zone, in yours and in the server's.
-
-**Time zones:** times are entered in the schedule's own time zone, and Quartz evaluates the schedule in that zone on
-the server. "Use mine" sets it to the browser's zone. The console reads the server's time zone
-(`GET /batch-console/api/server`) only to show the server's view; it does not convert the cron expression to the
-server's offset. Converting would break twice a year: between the US and EU daylight saving switches, the offset
-between, say, Europe/Vienna and America/Los_Angeles is 8 instead of 9 hours, so a converted 09:00 Vienna schedule would
-fire at 08:00 Vienna for a few weeks. It could also shift runs to another weekday. A schedule stored as "09:00
-Europe/Vienna" fires at 09:00 Vienna all year, wherever the server runs.
-
-**Polling:** schedules every 10 s, executions every 3 s, and the open execution with its log every 2 s while it runs.
-
-**Frontend development:** run the app on port 8080, then start the Vite dev server with hot reload on
-http://localhost:5173/batch-console/. It proxies the API calls to port 8080. This uses the Node.js that Maven
-downloaded:
-
-```sh
-mvn frontend:npm -Dfrontend.npm.arguments="run dev"
-```
-
-The cron mapping has unit tests (`frontend/src/cron.test.ts`, Vitest). Maven runs them in the `test` phase; directly:
-`mvn frontend:npm -Dfrontend.npm.arguments=test`.
-
-With a local Node.js 20.19+ or 22.12+ and npm 11, `npm run dev`, `npm test` and `npm run typecheck` in `frontend/`
-work as well. npm 10 (bundled with Node 22) fails to install the dependencies ("Cannot read properties of null
-(reading 'edgesOut')"), so the build uses its own npm 11. The versions are set by `frontend.node.version` and
-`frontend.npm.version` in `pom.xml`.
-
-The Maven build puts the production build into `target/classes/static/batch-console/`, so the app serves it at
-`/batch-console/` (`BatchConsolePageController`).
+See [poc-common](../poc-common/README.md#batch-console). In this PoC it uses the Quartz cron dialect, and changes
+schedules through the Quartz Manager API. That API rebuilds a trigger on every change, which un-pauses it, so the
+console pauses it again after saving (finding 10).
 
 ## Things to try in the Quartz Manager UI
 
@@ -323,7 +172,8 @@ so the owner switch for UC4 doesn't apply to it.
    duration and step counts appears.
 2. Change the cron expression and time zone of a trigger, or add a second cron trigger to the same job.
    Restart the app: the change is still there.
-3. Start a failing run (`failAtItem=3` in a one-off trigger, or `-d '{"failAtItem":"3"}'` with the API `curl` above)
+3. Start a failing run (`failAtItem=3` in a one-off trigger, or `-d '{"failAtItem":"3"}'` with the UC4 `curl` in
+   [poc-common](../poc-common/README.md#external-scheduler-uc4-api-api))
    and check the mail.
 4. Pause the trigger, or put the scheduler in standby.
 

@@ -1,4 +1,8 @@
 spring:
+  web:
+    error:
+      # error responses carry the reason (e.g. "invalid cron expression"), which the batch console shows
+      include-message: always
   application:
     name: poc-quartz-manager
   datasource:

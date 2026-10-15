@@ -1,0 +1,69 @@
+server:
+  port: 8080
+
+spring:
+  web:
+    error:
+      # error responses carry the reason (e.g. "invalid cron expression"), which the batch console shows
+      include-message: always
+  application:
+    name: poc-db-scheduler
+  datasource:
+    # File-based, so Spring Batch history and schedules survive restarts. Delete ./data to start fresh.
+    url: jdbc:h2:file:./data/batch;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+  batch:
+    job:
+      enabled: false # never run jobs on startup; db-scheduler or the API starts them
+    jdbc:
+      initialize-schema: always
+  sql:
+    init:
+      mode: always # schema.sql: db-scheduler's scheduled_tasks table
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  mail:
+    # Mailpit (see poc-quartz-manager/compose.yaml or `brew install mailpit`): SMTP on 1025, web UI on :8025
+    host: localhost
+    port: 1025
+
+db-scheduler:
+  # One thread per job that may run at the same time. Each task blocks its thread for the whole batch run.
+  threads: 4
+  # "Run now" and UC4 starts are executed right away instead of at the next poll
+  immediate-execution-enabled: true
+  polling-interval: 5s
+
+db-scheduler-ui:
+  enabled: true
+  task-data: true
+
+poc:
+  api:
+    # Technical user for the external-scheduler (UC4) API
+    user: uc4
+    password: uc4-secret
+    start-timeout: 5s
+  execution-logs:
+    # One log file per Spring Batch execution (<dir>/<jobExecutionId>.log), shown in the batch console
+    dir: data/execution-logs
+  notification:
+    notify-on: FAILED,STOPPED
+    from: batch@example.com
+    to: ops@example.com
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    mail:
+      enabled: false # don't report DOWN just because no SMTP server is running locally
+
+logging:
+  pattern:
+    level: "%5p [exec=%X{jobExecutionId:-}]"

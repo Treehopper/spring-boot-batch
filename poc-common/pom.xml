@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.0.6</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.example</groupId>
+  <artifactId>poc-common</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>PoC common: Spring Batch jobs, batch console, UC4 API</name>
+  <description>
+    Everything the scheduler PoCs share: demo Spring Batch jobs, the single job start entry point, execution history,
+    per-execution logs, failure notifications, the external-scheduler (UC4) API and the batch console (React UI and
+    its backend). Each PoC adds its scheduler through SchedulerSupport (and ManagedSchedules).
+  </description>
+
+  <properties>
+    <java.version>21</java.version>
+    <skip.frontend>false</skip.frontend>
+    <!-- Node.js for the frontend build (Vite 8 needs 20.19+ or 22.12+) -->
+    <frontend.node.version>v22.23.3</frontend.node.version>
+    <!-- npm 10 (bundled with Node 22) fails to resolve the vitest peer dependencies ("reading 'edgesOut'") -->
+    <frontend.npm.version>11.21.0</frontend.npm.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-batch-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+
+    <!-- for PocContractTest, which the PoCs use from this module's test jar -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Publishes PocContractTest (src/test) as poc-common-...-tests.jar for the PoCs' tests -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- A plain library jar: no repackaging, and nothing to run when spring-boot:run is called on the reactor -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+      <!--
+        Builds and tests the React batch console (frontend/); the build goes into this jar
+        as META-INF/resources/batch-console, so every PoC that depends on it serves the console at /batch-console/.
+        Downloads its own Node.js (from nodejs.org) and npm (from the npm registry) into frontend/node, once,
+        so only Maven is needed.
+        Skip with -Dskip.frontend, e.g. when only the backend changed.
+      -->
+      <plugin>
+        <groupId>com.github.eirslett</groupId>
+        <artifactId>frontend-maven-plugin</artifactId>
+        <version>2.0.2</version>
+        <configuration>
+          <workingDirectory>frontend</workingDirectory>
+          <installDirectory>frontend</installDirectory>
+          <nodeVersion>${frontend.node.version}</nodeVersion>
+          <npmVersion>${frontend.npm.version}</npmVersion>
+          <skip>${skip.frontend}</skip>
+        </configuration>
+        <executions>
+          <execution>
+            <id>install-node-and-npm</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>install-node-and-npm</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>npm-install</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>npm</goal>
+            </goals>
+            <configuration>
+              <arguments>install --no-fund --no-audit</arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>npm-build</id>
+            <!-- after process-resources, so the static files aren't overwritten by the resource copy -->
+            <phase>process-resources</phase>
+            <goals>
+              <goal>npm</goal>
+            </goals>
+            <configuration>
+              <arguments>run build</arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>npm-test</id>
+            <phase>test</phase>
+            <goals>
+              <goal>npm</goal>
+            </goals>
+            <configuration>
+              <arguments>test</arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
