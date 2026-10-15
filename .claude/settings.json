@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(.devcontainer/**)",
+      "Write(.devcontainer/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Edit(.mcp.json)",
+      "Write(.mcp.json)",
+      "Edit(.git/hooks/**)",
+      "Write(.git/hooks/**)",
+      "Edit(.git/config)",
+      "Write(.git/config)"
+    ]
+  }
+}
