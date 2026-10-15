@@ -14,9 +14,14 @@ React 19 + Vite + TypeScript for the Batch Console.
 
 ## Run it
 
-Prerequisites: Java 21+, Maven, and Node.js 20.19+ or 22.12+ with npm on the `PATH`. The Maven build runs `npm install`
-and `npm run build` for the Batch Console; `-Dskip.frontend` skips that (the console then isn't served, or an older
-build in `target/` is). To receive the notification mails you also need a local SMTP server on port 1025 (see below).
+Prerequisites: Java 21+ and Maven. No Node.js installation is needed: for the Batch Console, the Maven build
+(`frontend-maven-plugin`) downloads Node.js and npm into `frontend/node/` on the first build (from nodejs.org), then runs
+`npm install` and `npm run build`. `-Dskip.frontend` skips the frontend build, e.g. when only Java
+code changed; the console is then served from an earlier build in `target/`, or not at all after `mvn clean`.
+To receive the notification mails you also need a local SMTP server on port 1025 (see below).
+
+Inside the devcontainer, the firewall blocks nodejs.org. Add `nodejs.org` to the domain list in
+`.devcontainer/init-firewall.sh` on the host and restart the container, or build with `-Dskip.frontend` there.
 
 ```sh
 cd poc-quartz-manager
@@ -47,7 +52,7 @@ The app runs directly on the Mac JVM. Docker is only used for Mailpit, and Mailp
 so neither Docker nor Colima is needed:
 
 ```sh
-brew install maven node jq mailpit   # maven pulls in a current OpenJDK (21+ is required)
+brew install maven jq mailpit   # maven pulls in a current OpenJDK (21+ is required)
 
 mailpit                         # terminal 1: SMTP on localhost:1025, web UI on http://localhost:8025
 
@@ -235,13 +240,16 @@ Loki or Elasticsearch filtered by `jobExecutionId`.
 
 **Polling:** schedules every 10 s, executions every 3 s, and the open execution with its log every 2 s while it runs.
 
-**Frontend development:** run the app on port 8080, then
+**Frontend development:** run the app on port 8080, then start the Vite dev server with hot reload on
+http://localhost:5173/batch-console/. It proxies the API calls to port 8080. This uses the Node.js that Maven
+downloaded:
 
 ```sh
-cd frontend
-npm run dev          # Vite dev server with hot reload, proxies the API calls to localhost:8080
-npm run typecheck
+mvn frontend:npm -Dfrontend.npm.arguments="run dev"
 ```
+
+With a local Node.js 20.19+ or 22.12+, `npm run dev` and `npm run typecheck` in `frontend/` work as well.
+The Node.js version is set by `frontend.node.version` in `pom.xml`.
 
 The Maven build puts the production build into `target/classes/static/batch-console/`, so the app serves it at
 `/batch-console/` (`BatchConsolePageController`).
