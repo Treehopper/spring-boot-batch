@@ -1,5 +1,7 @@
 package com.example.poc.api;
 
+import com.example.poc.batch.BatchExecutions;
+import com.example.poc.batch.ExecutionInfo;
 import com.example.poc.config.PocProperties;
 import com.example.poc.launch.BatchJobStarter;
 import com.example.poc.launch.PendingLaunches;
@@ -8,7 +10,6 @@ import com.example.poc.quartz.QuartzJobs;
 import com.example.poc.quartz.QuartzJobs.TriggerInfo;
 import java.net.URI;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,9 +20,6 @@ import java.util.concurrent.TimeoutException;
 import org.quartz.SchedulerException;
 import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.launch.JobExecutionNotRunningException;
-import org.springframework.batch.core.launch.JobOperator;
-import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,17 +41,15 @@ public class BatchJobController {
   private final QuartzJobs quartzJobs;
   private final BatchJobStarter batchJobStarter;
   private final PendingLaunches pendingLaunches;
-  private final JobRepository jobRepository;
-  private final JobOperator jobOperator;
+  private final BatchExecutions batchExecutions;
   private final Duration startTimeout;
 
   public BatchJobController(QuartzJobs quartzJobs, BatchJobStarter batchJobStarter, PendingLaunches pendingLaunches,
-                            JobRepository jobRepository, JobOperator jobOperator, PocProperties properties) {
+                            BatchExecutions batchExecutions, PocProperties properties) {
     this.quartzJobs = quartzJobs;
     this.batchJobStarter = batchJobStarter;
     this.pendingLaunches = pendingLaunches;
-    this.jobRepository = jobRepository;
-    this.jobOperator = jobOperator;
+    this.batchExecutions = batchExecutions;
     this.startTimeout = properties.api().startTimeout();
   }
 
@@ -107,7 +103,7 @@ public class BatchJobController {
   public ResponseEntity<ExecutionInfo> stop(@PathVariable long executionId) throws Exception {
     JobExecution execution = requireExecution(executionId);
     try {
-      jobOperator.stop(execution);
+      batchExecutions.stop(execution);
     }
     catch (JobExecutionNotRunningException e) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
@@ -128,17 +124,8 @@ public class BatchJobController {
   }
 
   private JobExecution requireExecution(long executionId) {
-    JobExecution execution;
-    try {
-      execution = jobRepository.getJobExecution(executionId);
-    }
-    catch (EmptyResultDataAccessException e) {
-      // The JDBC repository of Spring Batch 6.0 throws instead of returning null
-      execution = null;
-    }
-    if (execution == null)
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown execution " + executionId);
-    return execution;
+    return batchExecutions.find(executionId)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown execution " + executionId));
   }
 
   public record OwnerChange(JobOwner owner) {
@@ -148,27 +135,5 @@ public class BatchJobController {
   }
 
   public record StartResponse(String requestId, Long jobExecutionId, URI statusUrl) {
-  }
-
-  public record ExecutionInfo(long jobExecutionId, String jobName, String status, String exitCode, String exitDescription,
-                              boolean running, LocalDateTime startTime, LocalDateTime endTime, Long durationMs,
-                              Map<String, String> parameters, List<StepInfo> steps) {
-
-    static ExecutionInfo of(JobExecution execution) {
-      Long durationMs = execution.getStartTime() != null && execution.getEndTime() != null
-        ? Duration.between(execution.getStartTime(), execution.getEndTime()).toMillis()
-        : null;
-      Map<String, String> parameters = new java.util.TreeMap<>();
-      execution.getJobParameters().parameters().forEach(p -> parameters.put(p.name(), String.valueOf(p.value())));
-      List<StepInfo> steps = execution.getStepExecutions().stream()
-        .map(s -> new StepInfo(s.getStepName(), s.getStatus().name(), s.getReadCount(), s.getWriteCount(), s.getSkipCount(), s.getCommitCount()))
-        .toList();
-      return new ExecutionInfo(execution.getId(), execution.getJobInstance().getJobName(), execution.getStatus().name(),
-        execution.getExitStatus().getExitCode(), execution.getExitStatus().getExitDescription(), execution.isRunning(),
-        execution.getStartTime(), execution.getEndTime(), durationMs, parameters, steps);
-    }
-  }
-
-  public record StepInfo(String name, String status, long readCount, long writeCount, long skipCount, long commitCount) {
   }
 }

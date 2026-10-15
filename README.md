@@ -208,6 +208,8 @@ That keeps the scheduler replaceable.
 
 Next step: check the gaps of option 1 against option 2/3.
 Option 1 is implemented as a runnable spike in [`poc-quartz-manager/`](poc-quartz-manager/README.md).
+It also contains a small custom React UI next to the Quartz Manager UI, as a spike of option 3 (hybrid):
+schedules via the Quartz Manager API, and execution history, logs and stop via Spring Batch.
 
 ## References
 

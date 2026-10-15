@@ -37,7 +37,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:test;DB_CLOSE_DELAY=-1")
+@SpringBootTest(properties = {
+  "spring.datasource.url=jdbc:h2:mem:test;DB_CLOSE_DELAY=-1",
+  "poc.execution-logs.dir=target/test-execution-logs"
+})
 @AutoConfigureMockMvc
 class PocApplicationTests {
 
@@ -108,6 +111,43 @@ class PocApplicationTests {
     assertThat(records.getAllValues()).extracting(LogRecord::getMessage)
       .anySatisfy(message -> assertThat(message).startsWith("importCustomersStep COMPLETED"))
       .anySatisfy(message -> assertThat(message).startsWith("importCustomersJob #" + execution.getId() + " COMPLETED"));
+  }
+
+  @Test
+  void batchConsoleListsExecutionsWithTheirLog() throws Exception {
+    JobExecution execution = startAndAwait("{\"itemCount\":\"6\",\"itemDelayMs\":\"0\"}");
+
+    mvc.perform(get("/batch-console/api/executions").param("jobName", "importCustomersJob").param("limit", "1"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$[0].jobExecutionId").value(execution.getId()))
+      .andExpect(jsonPath("$[0].status").value("COMPLETED"))
+      .andExpect(jsonPath("$[0].startedBy").value("api"))
+      .andExpect(jsonPath("$[0].steps[0].writeCount").value(6));
+    String log = mvc.perform(get("/batch-console/api/executions/" + execution.getId() + "/log"))
+      .andExpect(status().isOk())
+      .andReturn().getResponse().getContentAsString();
+    assertThat(log).contains("Executing step: [importCustomersStep]", "Wrote 5 customers", "Wrote 1 customers");
+    mvc.perform(post("/batch-console/api/executions/" + execution.getId() + "/stop")).andExpect(status().isConflict());
+    mvc.perform(get("/batch-console/api/executions/987654/log")).andExpect(status().isNotFound());
+  }
+
+  @Test
+  void batchConsoleChecksCronExpressions() throws Exception {
+    mvc.perform(get("/batch-console/api/cron-preview").param("expression", "0 0 9 * * ?").param("timeZone", "Asia/Tokyo"))
+      .andExpect(jsonPath("$.valid").value(true))
+      .andExpect(jsonPath("$.nextFireTimes.length()").value(5))
+      .andExpect(jsonPath("$.nextFireTimes[0]").value(org.hamcrest.Matchers.endsWith("T00:00:00Z")));
+    mvc.perform(get("/batch-console/api/cron-preview").param("expression", "bogus").param("timeZone", "UTC"))
+      .andExpect(jsonPath("$.valid").value(false));
+    mvc.perform(get("/batch-console/api/cron-preview").param("expression", "0 0 9 * * ?").param("timeZone", "Mars/Base"))
+      .andExpect(jsonPath("$.valid").value(false))
+      .andExpect(jsonPath("$.error").value("Unknown time zone Mars/Base"));
+  }
+
+  @Test
+  void batchConsolePageIsServed() throws Exception {
+    mvc.perform(get("/batch-console/")).andExpect(forwardedUrl("/batch-console/index.html"));
+    mvc.perform(get("/batch-console")).andExpect(redirectedUrl("/batch-console/"));
   }
 
   @Test

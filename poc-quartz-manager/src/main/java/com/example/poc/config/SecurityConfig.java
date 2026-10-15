@@ -14,7 +14,7 @@ import org.springframework.security.web.SecurityFilterChain;
 /**
  * The external-scheduler API ({@code /api/**}) is protected with a technical user (HTTP basic).
  * <p>
- * Everything else (Quartz Manager UI and API, H2 console, Swagger) is left open for local testing. Quartz Manager
+ * Everything else (Quartz Manager UI and API, batch console, H2 console, Swagger) is left open for local testing. Quartz Manager
  * UI treats a 404 on {@code /quartz-manager/auth/whoami} as "security disabled". For anything beyond a PoC, add
  * {@code quartz-manager-starter-security} or protect {@code /quartz-manager/**} with the host app's security.
  */

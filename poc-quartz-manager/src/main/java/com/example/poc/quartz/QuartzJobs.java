@@ -5,10 +5,12 @@ import com.example.poc.launch.BatchJobStarter;
 import com.example.poc.quartz.jobs.CleanupQuartzJob;
 import com.example.poc.quartz.jobs.ImportCustomersQuartzJob;
 import it.fabioformosa.quartzmanager.api.jobs.AbstractQuartzManagerJob;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import org.quartz.CronScheduleBuilder;
+import org.quartz.CronTrigger;
 import org.quartz.JobBuilder;
 import org.quartz.JobDataMap;
 import org.quartz.JobDetail;
@@ -68,7 +70,6 @@ public class QuartzJobs implements ApplicationRunner {
       .build();
     Trigger trigger = TriggerBuilder.newTrigger()
       .withIdentity(batchJobName + "-cron", GROUP)
-      .withDescription(cron + " " + timeZone)
       .forJob(job)
       .withSchedule(CronScheduleBuilder.cronSchedule(cron)
         .inTimeZone(TimeZone.getTimeZone(timeZone))
@@ -119,14 +120,16 @@ public class QuartzJobs implements ApplicationRunner {
   private TriggerInfo toInfo(Trigger trigger) {
     try {
       TriggerKey key = trigger.getKey();
+      CronTrigger cron = trigger instanceof CronTrigger cronTrigger ? cronTrigger : null;
       return new TriggerInfo(key.getGroup() + "." + key.getName(), scheduler.getTriggerState(key).name(),
-        trigger.getDescription(), trigger.getNextFireTime() == null ? null : trigger.getNextFireTime().toInstant());
+        cron == null ? null : cron.getCronExpression(), cron == null ? null : cron.getTimeZone().getID(),
+        trigger.getNextFireTime() == null ? null : trigger.getNextFireTime().toInstant());
     }
     catch (SchedulerException e) {
       throw new IllegalStateException(e);
     }
   }
 
-  public record TriggerInfo(String key, String state, String description, java.time.Instant nextFireTime) {
+  public record TriggerInfo(String key, String state, String cronExpression, String timeZone, Instant nextFireTime) {
   }
 }

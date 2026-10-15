@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Spring Boot's default console logging, plus one log file per Spring Batch execution for the batch console -->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+  <springProperty name="executionLogDir" source="poc.execution-logs.dir" defaultValue="data/execution-logs"/>
+
+  <!-- Routes every event with the MDC value "jobExecutionId" (set for the whole run) to <dir>/<id>.log -->
+  <appender name="EXECUTION_LOGS" class="ch.qos.logback.classic.sift.SiftingAppender">
+    <filter class="com.example.poc.console.ExecutionLogFilter"/>
+    <discriminator>
+      <key>jobExecutionId</key>
+      <defaultValue>unknown</defaultValue>
+    </discriminator>
+    <timeout>5 minutes</timeout>
+    <sift>
+      <appender name="EXECUTION_LOG_${jobExecutionId}" class="ch.qos.logback.core.FileAppender">
+        <file>${executionLogDir}/${jobExecutionId}.log</file>
+        <encoder>
+          <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n%ex</pattern>
+        </encoder>
+      </appender>
+    </sift>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="EXECUTION_LOGS"/>
+  </root>
+</configuration>

@@ -4,11 +4,19 @@ Spike of **option 1** from the [evaluation](../README.md#assessment):
 Quartz + [Quartz Manager](https://github.com/fabioformosa/quartz-manager) + a Spring Batch listener for notifications,
 with external (UC4) starts routed through Quartz.
 
-Stack: Spring Boot 4.0.6, Spring Batch 6.0, Quartz 2.5 (JDBC job store), Quartz Manager 5.0.1, H2 (file DB), Java 21+.
+It contains two UIs side by side:
+- the **Quartz Manager UI** (`/quartz-manager-ui/`), as shipped by the library
+- a small custom **Batch Console** in React (`/batch-console/`), which covers exactly the UI requirements: schedules
+  with time zones, start/stop, logs and past executions. See [Batch Console](#batch-console).
+
+Stack: Spring Boot 4.0.6, Spring Batch 6.0, Quartz 2.5 (JDBC job store), Quartz Manager 5.0.1, H2 (file DB), Java 21+,
+React 19 + Vite + TypeScript for the Batch Console.
 
 ## Run it
 
-Prerequisites: Java 21+ and Maven. To receive the notification mails you also need a local SMTP server on port 1025 (see below).
+Prerequisites: Java 21+, Maven, and Node.js 20.19+ or 22.12+ with npm on the `PATH`. The Maven build runs `npm install`
+and `npm run build` for the Batch Console; `-Dskip.frontend` skips that (the console then isn't served, or an older
+build in `target/` is). To receive the notification mails you also need a local SMTP server on port 1025 (see below).
 
 ```sh
 cd poc-quartz-manager
@@ -39,7 +47,7 @@ The app runs directly on the Mac JVM. Docker is only used for Mailpit, and Mailp
 so neither Docker nor Colima is needed:
 
 ```sh
-brew install maven jq mailpit   # maven pulls in a current OpenJDK (21+ is required)
+brew install maven node jq mailpit   # maven pulls in a current OpenJDK (21+ is required)
 
 mailpit                         # terminal 1: SMTP on localhost:1025, web UI on http://localhost:8025
 
@@ -122,7 +130,8 @@ Everything runs on http://localhost:8080. There is no page at `/`.
 
 | What | URL | Login |
 |------|-----|-------|
-| Quartz Manager UI | http://localhost:8080/quartz-manager-ui/ | none (see [Security](#security)) |
+| Batch Console (custom React UI) | http://localhost:8080/batch-console/ | none (see [Security](#security)) |
+| Quartz Manager UI | http://localhost:8080/quartz-manager-ui/ | none |
 | Swagger UI: all REST endpoints below, with "Try it out" | http://localhost:8080/swagger-ui/index.html (or `/swagger-ui.html`) | the browser asks for `uc4` / `uc4-secret` when you call `/api/**` |
 | H2 console: `BATCH_*` (Spring Batch history) and `QRTZ_*` (Quartz schedules) tables | http://localhost:8080/h2-console | JDBC URL `jdbc:h2:file:./data/batch;AUTO_SERVER=TRUE`, user `sa`, empty password |
 | Mailpit: caught notification mails (if running) | http://localhost:8025 | none |
@@ -147,6 +156,19 @@ curl -u uc4:uc4-secret -H 'Content-Type: application/json' \
 curl -u uc4:uc4-secret localhost:8080/api/executions/1
 curl -u uc4:uc4-secret -X POST localhost:8080/api/executions/1/stop
 ```
+
+### Batch Console API (`/batch-console/api/**`)
+
+Backend of the Batch Console for what Quartz Manager doesn't offer. Built on Spring Batch (`JobRepository`,
+`JobOperator`). No login in this PoC.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /batch-console/api/executions?jobName=&limit=50` | Latest executions, newest first, with status, who started them, start/end, duration, parameters and steps |
+| `GET /batch-console/api/executions/{id}` | One execution, same fields |
+| `GET /batch-console/api/executions/{id}/log` | The execution's log lines (plain text), see [Batch Console](#batch-console) |
+| `POST /batch-console/api/executions/{id}/stop` | Graceful Spring Batch stop (`409` if not running) |
+| `GET /batch-console/api/cron-preview?expression=&timeZone=` | Checks a Quartz cron expression and time zone, returns the next 5 fire times |
 
 ### Quartz Manager API (`/quartz-manager/**`)
 
@@ -181,7 +203,50 @@ STOMP over SockJS. The run events from [What's in it](#whats-in-it) arrive here.
 | Info | http://localhost:8080/actuator/info |
 | OpenAPI document (JSON) | http://localhost:8080/v3/api-docs |
 
-## Things to try in the UI
+## Batch Console
+
+A deliberately small custom UI in React (`frontend/`), side by side with the Quartz Manager UI. It implements only
+what the [UI requirement](../README.md#requirements) asks for, and nothing else:
+
+| Requirement | In the Batch Console | Backend used |
+|-------------|----------------------|--------------|
+| Change schedules at runtime, incl. time zone per schedule | **Schedules**: per job its cron triggers with expression, time zone, state and next run (in the schedule's zone and in local time). **Edit** changes cron and time zone, with a check and a preview of the next runs before saving. | Quartz Manager API: `GET /jobs`, `GET` and `PUT /triggers/{group}/{name}`; cron check: `GET /batch-console/api/cron-preview` |
+| Manual start | **Run now** per job. The new execution opens automatically. | Quartz Manager API: `POST /jobs/{group}/{name}/trigger` |
+| Manual stop | **Stop** on a running execution: graceful Spring Batch stop. **Pause/Resume** per schedule. | `POST /batch-console/api/executions/{id}/stop`; Quartz Manager API: `POST /triggers/{group}/{name}/pause` and `/resume` |
+| View logs | **Log** of each execution, stored per execution, so also for past runs and after a restart. Refreshed every 2 s while the run is in progress. | `GET /batch-console/api/executions/{id}/log` |
+| View past executions and their runtime | **Executions**: every run with status, who started it (schedule, manual, UC4 API), start and duration, filterable by job. **Details**: parameters, steps with read/write/skip/commit/rollback counts and duration, exit description. | `GET /batch-console/api/executions`, `GET /batch-console/api/executions/{id}` |
+
+Left out on purpose, because no requirement needs it:
+- creating or deleting jobs and triggers
+- simple, daily and calendar-interval triggers, and Quartz calendars
+- misfire settings (edited schedules use "do nothing": a missed run is skipped)
+- scheduler start, standby and shutdown
+- Quartz job data and job parameters for manual starts
+- restarting failed executions
+- the UC4 owner switch (stays in the UC4 API)
+- the live WebSocket events (the console polls instead)
+
+**How the logs work:** every log statement during a run carries the MDC value `jobExecutionId` (set by
+`LaunchTrackingListener`). `logback-spring.xml` routes those events with a `SiftingAppender` into one file per
+execution, `data/execution-logs/<jobExecutionId>.log` (`poc.execution-logs.dir`). The console reads the file through the
+console API. This includes Spring Batch's own messages, the job's log output, exceptions with stack traces and the
+notification mail result. Files are not cleaned up yet; a real setup needs a retention rule, or a log store such as
+Loki or Elasticsearch filtered by `jobExecutionId`.
+
+**Polling:** schedules every 10 s, executions every 3 s, and the open execution with its log every 2 s while it runs.
+
+**Frontend development:** run the app on port 8080, then
+
+```sh
+cd frontend
+npm run dev          # Vite dev server with hot reload, proxies the API calls to localhost:8080
+npm run typecheck
+```
+
+The Maven build puts the production build into `target/classes/static/batch-console/`, so the app serves it at
+`/batch-console/` (`BatchConsolePageController`).
+
+## Things to try in the Quartz Manager UI
 
 How it fits together: a **job** (`batch.importCustomersJob`) says *what* runs, and a **trigger** says *when*.
 One job can have several triggers. The PoC creates one cron trigger per job (`batch.importCustomersJob-cron`).
@@ -251,20 +316,31 @@ What the spike showed beyond the evaluation table:
    serves `index.html` for those routes.
 9. Spring Batch 6.0's JDBC `JobRepository.getJobExecution(id)` throws `EmptyResultDataAccessException` for unknown ids
    instead of returning `null`.
+10. **Rescheduling through the Quartz Manager API un-pauses the trigger**, because it replaces the trigger with a new one.
+    The Batch Console pauses it again after saving.
+11. **The Quartz Manager API answers an invalid cron expression with a bare HTTP 500**, without a message. The trigger
+    stays unchanged. The Batch Console checks the expression first (`/batch-console/api/cron-preview`).
+12. **Quartz silently uses GMT for an unknown time zone id** (`TimeZone.getTimeZone`). The Batch Console rejects
+    unknown zones before saving.
 
-Remaining gaps compared to options 2/3:
+Gaps of the Quartz Manager UI that the Batch Console closes:
 
-- no history view
-- no step details in the UI (only in the log line)
-- no graceful stop or restart from the UI (only via the API)
-- time zone not shown in the UI's trigger detail view (per the evaluation; not re-checked in this spike)
+- history of past executions with runtime, step details and who started them
+- logs of past executions, which survive a page reload and a restart
+- graceful Spring Batch stop
+- time zone shown next to each schedule (the Quartz Manager UI doesn't show it in its trigger detail view, per the
+  evaluation; not re-checked in this spike)
+
+Not covered by either UI: restart of failed executions, and the UC4 owner switch (UC4 API only).
 
 ## Security
 
 PoC-level only:
 
 - `/api/**` requires the technical user `uc4` (HTTP basic).
-- Everything else is open: Quartz Manager UI and API, Swagger and the H2 console. CSRF is disabled for them.
+- Everything else is open: Batch Console and its API, Quartz Manager UI and API, Swagger and the H2 console. CSRF is
+  disabled for them.
 
-For real use, protect `/quartz-manager/**` with the host app's security, or add `quartz-manager-starter-security`.
+For real use, protect `/batch-console/**` and `/quartz-manager/**` with the host app's security (e.g. the company SSO),
+or add `quartz-manager-starter-security` for the Quartz Manager part.
 Also move the credentials out of `application.yml`.
