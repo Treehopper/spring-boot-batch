@@ -50,6 +50,7 @@
 
 body {
   margin: 0;
+  height: 100vh;
   background: var(--bg);
   color: var(--text);
   font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -85,7 +86,15 @@ pre {
   font-size: 12.5px;
 }
 
+/* The page fills the window: header on top, the rest scrolls in <main>, and the execution log gets the height left */
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .app-header {
+  flex: none;
   display: flex;
   align-items: baseline;
   gap: 12px;
@@ -95,12 +104,24 @@ pre {
 }
 
 main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 20px 24px 40px;
-  max-width: 1600px;
-  margin: 0 auto;
+  padding: 20px 24px;
+}
+
+main > * {
+  flex: none;
+}
+
+/* Grows into the remaining height; its log fills the space and scrolls by itself */
+main > .detail {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .card {
@@ -142,21 +163,7 @@ main {
   margin: 8px 0;
 }
 
-.executions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-@media (min-width: 1100px) {
-  .executions.with-detail {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  }
-}
-
 .scroll {
-  max-height: 70vh;
   overflow: auto;
 }
 
@@ -286,27 +293,91 @@ select {
   background: var(--info-bg);
 }
 
-.cron-editor {
+.recurrence-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.recurrence-editor .fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px 14px;
+  align-items: center;
+}
+
+.recurrence-editor .fields > label,
+.recurrence-editor .fields > .label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.recurrence-editor .inline {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-end;
+  align-items: center;
+  gap: 8px;
 }
-.cron-editor label {
+
+.recurrence-editor .stacked {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
+  align-items: flex-start;
 }
-.cron-editor input {
-  min-width: 220px;
-  font-weight: normal;
+
+.recurrence-editor input[type='number'] {
+  width: 64px;
 }
-.cron-editor .error,
-.cron-editor .preview {
-  flex-basis: 100%;
-  margin: 0;
+
+.recurrence-editor input.wide {
+  min-width: 260px;
+}
+
+.recurrence-editor .days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.recurrence-editor .day {
+  min-width: 44px;
+  border-radius: 999px;
+}
+
+.recurrence-editor .day.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.recurrence-editor .summary p {
+  margin: 0 0 8px;
+}
+
+.recurrence-editor .actions {
+  justify-content: flex-start;
+}
+
+table.preview {
+  width: auto;
+}
+
+table.preview th,
+table.preview td {
+  padding: 4px 16px 4px 0;
+  white-space: nowrap;
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .facts {
@@ -339,4 +410,11 @@ pre.log {
   border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* The open execution's log takes the height left in the window and scrolls by itself */
+pre.log.execution-log {
+  flex: 1 1 0;
+  min-height: 240px;
+  max-height: none;
 }

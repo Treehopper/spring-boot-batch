@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { batch, type Key } from './api'
 import { ExecutionDetail } from './ExecutionDetail'
+import { browserTimeZone } from './format'
 import { Executions } from './Executions'
 import { loadSchedules, Schedules } from './Schedules'
 import { usePolling } from './usePolling'
@@ -13,6 +14,7 @@ export function App() {
   const [jobFilter, setJobFilter] = useState('')
   const executions = usePolling(() => batch.executions(jobFilter || undefined), EXECUTIONS_REFRESH_MS, [jobFilter])
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const server = usePolling(batch.server, null, [])
 
   const jobNames = (schedules.data ?? []).map((row) => row.job.jobKeyDTO.name)
 
@@ -37,34 +39,38 @@ export function App() {
         <h1>Batch Console</h1>
         <span className="muted">Custom UI on the Quartz Manager API and Spring Batch</span>
         <span className="spacer" />
+        {server.data && (
+          <span className="muted small">
+            Server time zone: {server.data.timeZone} · yours: {browserTimeZone()}
+          </span>
+        )}
         <a href="/quartz-manager-ui/">Quartz Manager UI</a>
       </header>
       <main>
         <Schedules
           rows={schedules.data}
           error={schedules.error}
+          serverTimeZone={server.data?.timeZone}
           onChanged={schedules.reload}
           onStarted={selectNewExecution}
         />
-        <div className={selectedId === null ? 'executions' : 'executions with-detail'}>
-          <Executions
-            executions={executions.data}
-            error={executions.error}
-            jobNames={jobNames}
-            jobFilter={jobFilter}
-            onJobFilterChange={setJobFilter}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
+        <Executions
+          executions={executions.data}
+          error={executions.error}
+          jobNames={jobNames}
+          jobFilter={jobFilter}
+          onJobFilterChange={setJobFilter}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+        {selectedId !== null && (
+          <ExecutionDetail
+            key={selectedId}
+            id={selectedId}
+            onClose={() => setSelectedId(null)}
+            onChanged={executions.reload}
           />
-          {selectedId !== null && (
-            <ExecutionDetail
-              key={selectedId}
-              id={selectedId}
-              onClose={() => setSelectedId(null)}
-              onChanged={executions.reload}
-            />
-          )}
-        </div>
+        )}
       </main>
     </>
   )

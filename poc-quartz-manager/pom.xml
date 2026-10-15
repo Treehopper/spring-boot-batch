@@ -20,8 +20,10 @@
     <java.version>21</java.version>
     <quartz-manager.version>5.0.1</quartz-manager.version>
     <skip.frontend>false</skip.frontend>
-    <!-- Node.js for the frontend build (Vite 8 needs 20.19+ or 22.12+), with the npm it ships -->
+    <!-- Node.js for the frontend build (Vite 8 needs 20.19+ or 22.12+) -->
     <frontend.node.version>v22.23.3</frontend.node.version>
+    <!-- npm 10 (bundled with Node 22) fails to resolve the vitest peer dependencies ("reading 'edgesOut'") -->
+    <frontend.npm.version>11.21.0</frontend.npm.version>
   </properties>
 
   <dependencies>
@@ -99,8 +101,9 @@
         <artifactId>spring-boot-maven-plugin</artifactId>
       </plugin>
       <!--
-        Builds the React batch console (frontend/) into target/classes/static/batch-console. Downloads its own Node.js
-        and npm into frontend/node (from nodejs.org, once), so only Maven is needed.
+        Builds and tests the React batch console (frontend/); the build goes to target/classes/static/batch-console.
+        Downloads its own Node.js (from nodejs.org) and npm (from the npm registry) into frontend/node, once,
+        so only Maven is needed.
         Skip with -Dskip.frontend, e.g. when only the backend changed.
       -->
       <plugin>
@@ -111,6 +114,7 @@
           <workingDirectory>frontend</workingDirectory>
           <installDirectory>frontend</installDirectory>
           <nodeVersion>${frontend.node.version}</nodeVersion>
+          <npmVersion>${frontend.npm.version}</npmVersion>
           <skip>${skip.frontend}</skip>
         </configuration>
         <executions>
@@ -140,6 +144,16 @@
             </goals>
             <configuration>
               <arguments>run build</arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>npm-test</id>
+            <phase>test</phase>
+            <goals>
+              <goal>npm</goal>
+            </goals>
+            <configuration>
+              <arguments>test</arguments>
             </configuration>
           </execution>
         </executions>

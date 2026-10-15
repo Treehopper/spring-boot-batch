@@ -18,7 +18,8 @@
       <appender name="EXECUTION_LOG_${jobExecutionId}" class="ch.qos.logback.core.FileAppender">
         <file>${executionLogDir}/${jobExecutionId}.log</file>
         <encoder>
-          <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n%ex</pattern>
+          <!-- full timestamp with offset, so the console can show it in the viewer's time zone -->
+          <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level %logger{36} - %msg%n%ex</pattern>
         </encoder>
       </appender>
     </sift>

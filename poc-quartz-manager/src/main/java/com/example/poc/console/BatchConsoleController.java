@@ -78,6 +78,18 @@ public class BatchConsoleController {
   }
 
   /**
+   * The server's default time zone. Quartz evaluates each schedule in its own time zone, so this is informational:
+   * the console shows the next runs in server time as well.
+   */
+  @GetMapping("/server")
+  public ServerInfo server() {
+    return new ServerInfo(ZoneId.systemDefault().getId());
+  }
+
+  public record ServerInfo(String timeZone) {
+  }
+
+  /**
    * Checks a Quartz cron expression and previews its next fire times. Quartz Manager answers an invalid expression
    * with a bare HTTP 500, so the editor checks here before saving.
    */

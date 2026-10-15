@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import { batch, quartz, type CronPreview, type Key, type ScheduledJob, type Trigger } from './api'
+import { useState } from 'react'
+import { quartz, type Key, type ScheduledJob, type Trigger } from './api'
+import { describe, fromCron } from './cron'
 import { browserTimeZone, formatTime } from './format'
+import { RecurrenceEditor } from './RecurrenceEditor'
 
 export interface ScheduleRow {
   job: ScheduledJob
@@ -25,11 +27,12 @@ export async function loadSchedules(): Promise<ScheduleRow[]> {
 interface Props {
   rows: ScheduleRow[] | undefined
   error: string | undefined
+  serverTimeZone: string | undefined
   onChanged: () => void
   onStarted: (job: Key) => void
 }
 
-export function Schedules({ rows, error, onChanged, onStarted }: Props) {
+export function Schedules({ rows, error, serverTimeZone, onChanged, onStarted }: Props) {
   const [editing, setEditing] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -75,8 +78,9 @@ export function Schedules({ rows, error, onChanged, onStarted }: Props) {
                     <tr key={id}>
                       <td>{index === 0 && <JobName job={job} />}</td>
                       <td colSpan={5}>
-                        <CronEditor
+                        <RecurrenceEditor
                           trigger={trigger}
+                          serverTimeZone={serverTimeZone}
                           onCancel={() => setEditing(null)}
                           onSaved={() => {
                             setEditing(null)
@@ -89,7 +93,10 @@ export function Schedules({ rows, error, onChanged, onStarted }: Props) {
                     <tr key={id}>
                       <td>{index === 0 && <JobName job={job} />}</td>
                       <td>
-                        <code>{trigger.cronExpression}</code>
+                        {describe(fromCron(trigger.cronExpression!))}
+                        <div className="muted small">
+                          <code>{trigger.cronExpression}</code>
+                        </div>
                       </td>
                       <td>{trigger.timeZone}</td>
                       <td>
@@ -159,81 +166,5 @@ function NextRun({ trigger }: { trigger: Trigger }) {
         </div>
       )}
     </>
-  )
-}
-
-function CronEditor({ trigger, onCancel, onSaved }: { trigger: Trigger; onCancel: () => void; onSaved: () => void }) {
-  const [cron, setCron] = useState(trigger.cronExpression ?? '')
-  const [timeZone, setTimeZone] = useState(trigger.timeZone ?? browserTimeZone())
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const timeZones = useMemo(() => Intl.supportedValuesOf('timeZone'), [])
-  const [preview, setPreview] = useState<CronPreview | null>(null)
-
-  // Check the expression and time zone while typing (Quartz Manager only answers HTTP 500 for invalid input)
-  useEffect(() => {
-    setPreview(null)
-    if (!cron.trim() || !timeZone) return
-    let cancelled = false
-    const timer = setTimeout(() => {
-      batch
-        .cronPreview(cron.trim(), timeZone)
-        .then((result) => !cancelled && setPreview(result))
-        .catch((e) => !cancelled && setPreview({ valid: false, error: String(e), nextFireTimes: [] }))
-    }, 300)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [cron, timeZone])
-
-  async function save(event: React.FormEvent) {
-    event.preventDefault()
-    setSaving(true)
-    setError(null)
-    try {
-      await quartz.reschedule(trigger, cron.trim(), timeZone)
-      // Rescheduling replaces the trigger, which un-pauses it: keep a paused schedule paused
-      if (trigger.state === 'PAUSED') await quartz.pause(trigger.triggerKeyDTO)
-      onSaved()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <form className="cron-editor" onSubmit={save}>
-      <label>
-        Cron expression
-        <input value={cron} onChange={(e) => setCron(e.target.value)} required spellCheck={false} autoFocus />
-        <span className="muted small">Quartz format: second minute hour day-of-month month day-of-week, e.g. 0 30 2 * * ?</span>
-      </label>
-      <label>
-        Time zone
-        <input list="time-zones" value={timeZone} onChange={(e) => setTimeZone(e.target.value)} required />
-        <datalist id="time-zones">
-          {timeZones.map((zone) => (
-            <option key={zone} value={zone} />
-          ))}
-        </datalist>
-      </label>
-      <div className="actions">
-        <button type="submit" className="primary" disabled={saving || !preview?.valid}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button type="button" onClick={onCancel} disabled={saving}>
-          Cancel
-        </button>
-      </div>
-      {preview && !preview.valid && <p className="error">{preview.error}</p>}
-      {preview?.valid && (
-        <p className="preview muted small">
-          Next runs: {preview.nextFireTimes.slice(0, 3).map((time) => formatTime(time, timeZone)).join(' · ')} ({timeZone})
-        </p>
-      )}
-      {error && <p className="error">{error}</p>}
-    </form>
   )
 }

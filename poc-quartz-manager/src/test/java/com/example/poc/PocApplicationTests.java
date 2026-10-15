@@ -142,6 +142,8 @@ class PocApplicationTests {
     mvc.perform(get("/batch-console/api/cron-preview").param("expression", "0 0 9 * * ?").param("timeZone", "Mars/Base"))
       .andExpect(jsonPath("$.valid").value(false))
       .andExpect(jsonPath("$.error").value("Unknown time zone Mars/Base"));
+    mvc.perform(get("/batch-console/api/server"))
+      .andExpect(jsonPath("$.timeZone").value(java.time.ZoneId.systemDefault().getId()));
   }
 
   @Test

@@ -15,8 +15,8 @@ React 19 + Vite + TypeScript for the Batch Console.
 ## Run it
 
 Prerequisites: Java 21+ and Maven. No Node.js installation is needed: for the Batch Console, the Maven build
-(`frontend-maven-plugin`) downloads Node.js and npm into `frontend/node/` on the first build (from nodejs.org), then runs
-`npm install` and `npm run build`. `-Dskip.frontend` skips the frontend build, e.g. when only Java
+(`frontend-maven-plugin`) downloads Node.js (from nodejs.org) and npm (from the npm registry) into `frontend/node/` on
+the first build, then runs `npm install`, `npm run build` and, in the `test` phase, the frontend unit tests (`npm test`). `-Dskip.frontend` skips the frontend build, e.g. when only Java
 code changed; the console is then served from an earlier build in `target/`, or not at all after `mvn clean`.
 To receive the notification mails you also need a local SMTP server on port 1025 (see below).
 
@@ -174,6 +174,7 @@ Backend of the Batch Console for what Quartz Manager doesn't offer. Built on Spr
 | `GET /batch-console/api/executions/{id}/log` | The execution's log lines (plain text), see [Batch Console](#batch-console) |
 | `POST /batch-console/api/executions/{id}/stop` | Graceful Spring Batch stop (`409` if not running) |
 | `GET /batch-console/api/cron-preview?expression=&timeZone=` | Checks a Quartz cron expression and time zone, returns the next 5 fire times |
+| `GET /batch-console/api/server` | The server's default time zone, shown in the console for comparison |
 
 ### Quartz Manager API (`/quartz-manager/**`)
 
@@ -215,7 +216,7 @@ what the [UI requirement](../README.md#requirements) asks for, and nothing else:
 
 | Requirement | In the Batch Console | Backend used |
 |-------------|----------------------|--------------|
-| Change schedules at runtime, incl. time zone per schedule | **Schedules**: per job its cron triggers with expression, time zone, state and next run (in the schedule's zone and in local time). **Edit** changes cron and time zone, with a check and a preview of the next runs before saving. | Quartz Manager API: `GET /jobs`, `GET` and `PUT /triggers/{group}/{name}`; cron check: `GET /batch-console/api/cron-preview` |
+| Change schedules at runtime, incl. time zone per schedule | **Schedules**: per job its cron triggers in words ("Every weekday (Mon–Fri) at 06:45") and as cron, with time zone, state and next run (in the schedule's zone and in local time). **Edit** opens a recurrence builder, see below. | Quartz Manager API: `GET /jobs`, `GET` and `PUT /triggers/{group}/{name}`; cron check: `GET /batch-console/api/cron-preview` |
 | Manual start | **Run now** per job. The new execution opens automatically. | Quartz Manager API: `POST /jobs/{group}/{name}/trigger` |
 | Manual stop | **Stop** on a running execution: graceful Spring Batch stop. **Pause/Resume** per schedule. | `POST /batch-console/api/executions/{id}/stop`; Quartz Manager API: `POST /triggers/{group}/{name}/pause` and `/resume` |
 | View logs | **Log** of each execution, stored per execution, so also for past runs and after a restart. Refreshed every 2 s while the run is in progress. | `GET /batch-console/api/executions/{id}/log` |
@@ -235,8 +236,38 @@ Left out on purpose, because no requirement needs it:
 `LaunchTrackingListener`). `logback-spring.xml` routes those events with a `SiftingAppender` into one file per
 execution, `data/execution-logs/<jobExecutionId>.log` (`poc.execution-logs.dir`). The console reads the file through the
 console API. This includes Spring Batch's own messages, the job's log output, exceptions with stack traces and the
-notification mail result. Files are not cleaned up yet; a real setup needs a retention rule, or a log store such as
+notification mail result. The files keep the full timestamp with offset; the console shows each line in the
+browser's time zone as `yyyy-MM-dd HH:mm:ss`, without milliseconds and thread name (`frontend/src/logFormat.ts`).
+
+**Layout:** the execution list shows the latest 3 executions and scrolls for more. The selected execution opens below
+it, and its log takes the remaining height of the window, at full width. Files are not cleaned up yet; a real setup needs a retention rule, or a log store such as
 Loki or Elasticsearch filtered by `jobExecutionId`.
+
+**Recurrence builder:** like the recurrence dialog in Outlook. Choose how often, then the details, and the builder
+writes the Quartz cron expression:
+
+| Repeat | Details | Cron, e.g. |
+|--------|---------|------------|
+| Every few minutes | every 1, 2, 5, 10, 15, 20 or 30 minutes | `0 0/15 * * * ?` |
+| Hourly | every 1, 2, 3, 4, 6, 8 or 12 hours, at minute m (counted from midnight) | `0 5 0/6 * * ?` |
+| Daily | time | `0 30 2 * * ?` |
+| Every weekday (Mon–Fri) | time | `0 45 6 ? * MON-FRI` |
+| Weekly | days of the week, time | `0 15 7 ? * MON,WED,FRI` |
+| Monthly, on a day of the month | day 1–31 or the last day, time | `0 0 0 15 * ?`, `0 59 23 L * ?` |
+| Monthly, on a weekday | first, second, third, fourth or last Monday … Sunday, time | `0 0 9 ? * 3#2` (second Tuesday), `0 0 9 ? * 6L` (last Friday) |
+| Custom cron expression | any Quartz expression; "edit as cron" turns a built one into a starting point | |
+
+Opening an existing schedule fills in the builder from its expression. Expressions that don't fit any of the shapes
+above open as "Custom". Before saving, Quartz checks the expression on the server and the editor lists the next three
+runs in the schedule's time zone, in yours and in the server's.
+
+**Time zones:** times are entered in the schedule's own time zone, and Quartz evaluates the schedule in that zone on
+the server. "Use mine" sets it to the browser's zone. The console reads the server's time zone
+(`GET /batch-console/api/server`) only to show the server's view; it does not convert the cron expression to the
+server's offset. Converting would break twice a year: between the US and EU daylight saving switches, the offset
+between, say, Europe/Vienna and America/Los_Angeles is 8 instead of 9 hours, so a converted 09:00 Vienna schedule would
+fire at 08:00 Vienna for a few weeks. It could also shift runs to another weekday. A schedule stored as "09:00
+Europe/Vienna" fires at 09:00 Vienna all year, wherever the server runs.
 
 **Polling:** schedules every 10 s, executions every 3 s, and the open execution with its log every 2 s while it runs.
 
@@ -248,8 +279,13 @@ downloaded:
 mvn frontend:npm -Dfrontend.npm.arguments="run dev"
 ```
 
-With a local Node.js 20.19+ or 22.12+, `npm run dev` and `npm run typecheck` in `frontend/` work as well.
-The Node.js version is set by `frontend.node.version` in `pom.xml`.
+The cron mapping has unit tests (`frontend/src/cron.test.ts`, Vitest). Maven runs them in the `test` phase; directly:
+`mvn frontend:npm -Dfrontend.npm.arguments=test`.
+
+With a local Node.js 20.19+ or 22.12+ and npm 11, `npm run dev`, `npm test` and `npm run typecheck` in `frontend/`
+work as well. npm 10 (bundled with Node 22) fails to install the dependencies ("Cannot read properties of null
+(reading 'edgesOut')"), so the build uses its own npm 11. The versions are set by `frontend.node.version` and
+`frontend.npm.version` in `pom.xml`.
 
 The Maven build puts the production build into `target/classes/static/batch-console/`, so the app serves it at
 `/batch-console/` (`BatchConsolePageController`).

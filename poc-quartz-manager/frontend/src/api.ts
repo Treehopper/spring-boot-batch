@@ -106,6 +106,7 @@ export const batch = {
   execution: (id: number) => request<Execution>('GET', `${console_}/executions/${id}`),
   log: (id: number) => request<string>('GET', `${console_}/executions/${id}/log`),
   stop: (id: number) => request<Execution>('POST', `${console_}/executions/${id}/stop`),
+  server: () => request<{ timeZone: string }>('GET', `${console_}/server`),
   cronPreview: (expression: string, timeZone: string) =>
     request<CronPreview>(
       'GET',

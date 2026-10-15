@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { batch } from './api'
 import { runtime, StatusBadge } from './Executions'
 import { formatDuration, formatStartedBy, formatTime } from './format'
+import { formatLog } from './logFormat'
 import { usePolling } from './usePolling'
 
 const RUNNING_REFRESH_MS = 2000
@@ -136,8 +137,8 @@ function LogView({ text }: { text: string | undefined }) {
   if (text === undefined) return <p className="muted">Loading…</p>
   if (text === '') return <p className="muted">No log lines for this execution.</p>
   return (
-    <pre ref={ref} className="log">
-      {text}
+    <pre ref={ref} className="log execution-log">
+      {formatLog(text)}
     </pre>
   )
 }
