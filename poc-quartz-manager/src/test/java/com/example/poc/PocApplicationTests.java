@@ -8,7 +8,9 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
@@ -61,6 +63,14 @@ class PocApplicationTests {
     mvc.perform(get("/quartz-manager/job-classes"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.length()").value(2));
+  }
+
+  @Test
+  void quartzManagerUiRoutesSurviveBrowserRefresh() throws Exception {
+    mvc.perform(get("/quartz-manager-ui/manager")).andExpect(forwardedUrl("/quartz-manager-ui/index.html"));
+    mvc.perform(get("/quartz-manager-ui/")).andExpect(forwardedUrl("/quartz-manager-ui/index.html"));
+    mvc.perform(get("/quartz-manager-ui")).andExpect(redirectedUrl("/quartz-manager-ui/"));
+    mvc.perform(get("/quartz-manager-ui/missing.js")).andExpect(status().isNotFound());
   }
 
   @Test

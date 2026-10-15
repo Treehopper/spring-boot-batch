@@ -153,7 +153,10 @@ What the spike showed beyond the evaluation table:
 7. **The Quartz worker thread is busy for the whole batch run**, because the job operator runs jobs synchronously.
    Size `org.quartz.threadPool.threadCount` accordingly. `@DisallowConcurrentExecution` queues a second start of the
    same job instead of running both at once.
-8. Spring Batch 6.0's JDBC `JobRepository.getJobExecution(id)` throws `EmptyResultDataAccessException` for unknown ids
+8. **Refreshing the Quartz Manager UI gives a 404.** The Angular app changes the URL to routes such as
+   `/quartz-manager-ui/manager` that don't exist on the server. Workaround in this PoC: `QuartzManagerUiController`
+   serves `index.html` for those routes.
+9. Spring Batch 6.0's JDBC `JobRepository.getJobExecution(id)` throws `EmptyResultDataAccessException` for unknown ids
    instead of returning `null`.
 
 Remaining gaps compared to options 2/3:
