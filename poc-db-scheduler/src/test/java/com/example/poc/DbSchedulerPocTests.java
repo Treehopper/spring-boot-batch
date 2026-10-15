@@ -3,6 +3,7 @@ package com.example.poc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
@@ -48,6 +49,15 @@ class DbSchedulerPocTests extends PocContractTest {
   @Override
   protected List<String> rejectedCrons() {
     return List.of("bogus", "0 0 9 * * MON", "30 9 * * *", "-");
+  }
+
+  /** db-scheduler-ui's own SPA fallback fails on Spring Boot 4; see DbSchedulerUiRoutesController. */
+  @Test
+  void dbSchedulerUiRoutesServeTheApp() throws Exception {
+    for (String route : List.of("/db-scheduler/", "/db-scheduler/batch-schedule", "/db-scheduler/batch-schedule/page/2",
+      "/db-scheduler/history/batch-schedule/cleanupJob-cron"))
+      mvc.perform(get(route)).andExpect(forwardedUrl("/db-scheduler/index.html"));
+    mvc.perform(get("/db-scheduler")).andExpect(status().isOk());
   }
 
   /** db-scheduler can't change a task instance while it executes: the API says so instead of failing. */

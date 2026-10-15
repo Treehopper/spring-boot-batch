@@ -1,37 +1,36 @@
 # PoC: Spring Batch + Quartz + Quartz Manager
 
-Spike of **option 1** from the [evaluation](../README.md#assessment):
-Quartz + [Quartz Manager](https://github.com/fabioformosa/quartz-manager) + a Spring Batch listener for notifications,
-with external (UC4) starts routed through Quartz.
+Quartz as scheduler, with Quartz Manager's UI and a custom Batch Console for the same jobs.
 
-It contains two UIs side by side:
-- the **Quartz Manager UI** (`/quartz-manager-ui/`), as shipped by the library
-- the **Batch Console** (`/batch-console/`), a small custom React UI that covers exactly the UI requirements:
-  schedules with time zones, start/stop, logs and past executions. It is shared with the db-scheduler and JobRunr
-  PoCs and described in [poc-common](../poc-common/README.md#batch-console).
+## Quick start
 
-Stack: Spring Boot 4.0.6, Spring Batch 6.0, Quartz 2.5 (JDBC job store), Quartz Manager 5.0.1, H2 (file DB), Java 21+.
-The Spring Batch jobs, the Batch Console, the UC4 API and the notifications come from
-[poc-common](../poc-common/README.md); this module adds Quartz and Quartz Manager.
-
-## Run it
-
-From the repository root (prerequisites, mail server and macOS notes: [Run a PoC](../README.md#run-a-poc)):
+From the repository root (the first build downloads Node.js for the custom UI, so it needs internet access):
 
 ```sh
 mvn -pl poc-quartz-manager -am spring-boot:run
 ```
 
-The app listens on http://localhost:8080; see [Endpoints](#endpoints) for the UIs and APIs.
-State (Spring Batch history, Quartz schedules, execution logs) lives in `poc-quartz-manager/data`. Delete it for a
-fresh start.
+Stop it with Ctrl+C. Run only one PoC at a time; they all use port 8080. Don't run `mvn spring-boot:run` without
+`-pl` in the root folder: Maven then starts every PoC, one after another.
 
-### Automated checks
+| What | URL |
+|------|-----|
+| **Batch Console** (custom UI) | http://localhost:8080/batch-console/ |
+| **Quartz Manager UI** (built-in dashboard) | http://localhost:8080/quartz-manager-ui/ |
+| UC4 API (user `uc4`, password `uc4-secret`) | http://localhost:8080/api/... ([how](#uc4-api-and-batch-console-api)) |
+
+More: [all endpoints](#endpoints), [failure mails](../README.md#run-a-poc) (optional local mail server).
+
+## Tests, data, stack
 
 ```sh
-mvn -pl poc-quartz-manager -am test    # integration tests: start via API, failure mail, graceful stop, owner switch, ...
-poc-quartz-manager/smoke-test.sh       # against the running app (needs curl and jq): walks through the UC4 API
+mvn -pl poc-quartz-manager -am test        # integration tests
+poc-quartz-manager/smoke-test.sh           # against the running app (needs curl and jq): walks through the UC4 API
 ```
+
+State (Quartz schedules, Spring Batch history, execution logs) lives in `poc-quartz-manager/data` (H2 files). Delete the folder for a fresh start with the demo schedules.
+Stack: Spring Boot 4.0.6, Spring Batch 6.0, Quartz 2.5 (JDBC job store), Quartz Manager 5.0.1, H2, Java 21+. Jobs, Batch Console, UC4 API and notifications are shared via
+[poc-common](../poc-common/README.md).
 
 ## What's in it
 

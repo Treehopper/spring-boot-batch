@@ -1,29 +1,35 @@
 # PoC: Spring Batch + db-scheduler
 
-Shows that [db-scheduler](https://github.com/kagkarlsson/db-scheduler) schedules can be changed at runtime, including a
-time zone per schedule, with a small backend. The evaluation listed "recurring schedules are defined in code" as
-db-scheduler's main disadvantage. The same [Batch Console](../poc-common/README.md#batch-console) as in the Quartz PoC
-controls them.
+db-scheduler as scheduler, with schedules editable at runtime, db-scheduler-ui and a custom Batch Console for the same jobs.
 
-Two UIs side by side:
-- the **Batch Console** (`/batch-console/`): schedules with the recurrence builder, run now, stop, history and logs
-- **db-scheduler-ui** (`/db-scheduler`), db-scheduler's own UI, for comparison
+## Quick start
 
-Stack: Spring Boot 4.0.6, Spring Batch 6.0, db-scheduler 16.12 (Spring Boot 4 starter), db-scheduler-ui 5.0,
-H2 (file DB), Java 21+. Spring Batch jobs, Batch Console, UC4 API and notifications come from
-[poc-common](../poc-common/README.md).
-
-## Run it
-
-From the repository root (prerequisites, mail server and macOS notes: [Run a PoC](../README.md#run-a-poc)):
+From the repository root (the first build downloads Node.js for the custom UI, so it needs internet access):
 
 ```sh
 mvn -pl poc-db-scheduler -am spring-boot:run
-mvn -pl poc-db-scheduler -am test       # integration tests (PocContractTest + db-scheduler specifics)
 ```
 
-State (Spring Batch history, schedules, execution logs) lives in `poc-db-scheduler/data`. Delete it for a fresh
-start.
+Stop it with Ctrl+C. Run only one PoC at a time; they all use port 8080. Don't run `mvn spring-boot:run` without
+`-pl` in the root folder: Maven then starts every PoC, one after another.
+
+| What | URL |
+|------|-----|
+| **Batch Console** (custom UI) | http://localhost:8080/batch-console/ |
+| **db-scheduler-ui** (built-in dashboard) | http://localhost:8080/db-scheduler |
+| UC4 API (user `uc4`, password `uc4-secret`) | http://localhost:8080/api/... ([how](../poc-common/README.md#external-scheduler-uc4-api-api)) |
+
+More: [all endpoints](#endpoints), [failure mails](../README.md#run-a-poc) (optional local mail server).
+
+## Tests, data, stack
+
+```sh
+mvn -pl poc-db-scheduler -am test          # integration tests
+```
+
+State (schedules, Spring Batch history, execution logs) lives in `poc-db-scheduler/data` (H2 files). Delete the folder for a fresh start with the demo schedules.
+Stack: Spring Boot 4.0.6, Spring Batch 6.0, db-scheduler 16.12, db-scheduler-ui 5.0, H2, Java 21+. Jobs, Batch Console, UC4 API and notifications are shared via
+[poc-common](../poc-common/README.md).
 
 ## How the schedules work
 
@@ -95,7 +101,12 @@ APIs: the Batch Console API (including `/batch-console/api/schedules`) and the U
    serializes each instance's data with Jackson. A self-reference in `ScheduleAndData.getData()` made its API fail
    (fixed in the PoC). Its API then lists every task instance with its data and next execution time. I haven't used
    its UI beyond loading it.
-10. **One scheduler thread per running job:** like Quartz, a task blocks its thread for the whole batch run
+10. **db-scheduler-ui 5.0 shows an error page on Spring Boot 4 for all URLs except `/db-scheduler` and
+    `/db-scheduler/history/all`** (e.g. `/db-scheduler/` or a reloaded task page). Its SPA fallback serves `index.html`
+    as an in-memory resource, which Spring Framework 7 can't serve ("Byte array resource … cannot be resolved to
+    absolute file path"). Workaround in this PoC: `DbSchedulerUiRoutesController` forwards the UI's routes to
+    `/db-scheduler/index.html`. Missing files under `/db-scheduler/` still answer `500` instead of `404`.
+11. **One scheduler thread per running job:** like Quartz, a task blocks its thread for the whole batch run
     (`db-scheduler.threads`).
 
 ## Security

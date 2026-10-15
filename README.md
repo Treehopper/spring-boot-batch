@@ -216,6 +216,16 @@ caveats, though (see [Comparison](#comparison)).
 
 ## Proofs of concept
 
+**Quick start**, from the repository root, one PoC at a time (all use port 8080; stop with Ctrl+C):
+
+| PoC | Start | Custom UI (Batch Console) | Built-in dashboard |
+|-----|-------|---------------------------|--------------------|
+| Quartz + Quartz Manager | `mvn -pl poc-quartz-manager -am spring-boot:run` | http://localhost:8080/batch-console/ | http://localhost:8080/quartz-manager-ui/ |
+| db-scheduler | `mvn -pl poc-db-scheduler -am spring-boot:run` | http://localhost:8080/batch-console/ | http://localhost:8080/db-scheduler |
+| JobRunr | `mvn -pl poc-jobrunr -am spring-boot:run` | http://localhost:8080/batch-console/ | http://localhost:8000/dashboard |
+
+Don't run `mvn spring-boot:run` without `-pl` in the root folder: Maven then starts every PoC, one after another.
+
 Four Maven modules, one Spring Boot app per scheduler, all with the same demo Spring Batch jobs and the same custom UI:
 
 | Module | What |
@@ -232,18 +242,8 @@ and npm for the Batch Console into `poc-common/frontend/node/` (see [poc-common]
 Inside the devcontainer, the firewall blocks nodejs.org; add it to `.devcontainer/init-firewall.sh` on the host, or
 build with `-Dskip.frontend`.
 
-From the repository root, one PoC at a time (all use port 8080):
-
-```sh
-mvn -pl poc-quartz-manager -am spring-boot:run
-mvn -pl poc-db-scheduler -am spring-boot:run
-mvn -pl poc-jobrunr -am spring-boot:run
-
-mvn install                                     # build and test everything
-```
-
-Then open the Batch Console at http://localhost:8080/batch-console/. Each PoC's README lists its other endpoints.
-`-am` also builds `poc-common`. Running from a module folder (`cd poc-jobrunr && mvn spring-boot:run`) works too,
+Start commands and URLs: see the quick start above. `mvn install` in the root folder builds and tests everything.
+`-am` in the start commands also builds `poc-common`, which every PoC depends on. Running from a module folder (`cd poc-jobrunr && mvn spring-boot:run`) works too,
 after `mvn install -pl poc-common` has put `poc-common` into the local Maven repository.
 
 **Notification mails** need a local SMTP server on port 1025; without one, the apps still work and only log the

@@ -1,29 +1,35 @@
 # PoC: Spring Batch + JobRunr
 
-Shows that [JobRunr](https://github.com/jobrunr/jobrunr) (open-source edition, LGPL-3.0) recurring jobs can be changed
-at runtime, including a time zone per schedule, with a small backend. The evaluation listed "recurring jobs defined in
-code" as JobRunr's main disadvantage. The same [Batch Console](../poc-common/README.md#batch-console) as in the other
-PoCs controls them.
+JobRunr (open-source edition) as scheduler, with schedules editable at runtime, the JobRunr dashboard and a custom Batch Console for the same jobs.
 
-Two UIs side by side:
-- the **Batch Console** (`/batch-console/`): schedules with the recurrence builder, run now, stop, history and logs
-- the **JobRunr dashboard** (http://localhost:8000/dashboard), JobRunr's own UI, for comparison. It runs on its own
-  embedded web server and port, not in Spring MVC.
+## Quick start
 
-Stack: Spring Boot 4.0.6, Spring Batch 6.0, JobRunr 9.0 (Spring Boot 4 starter, SQL storage), H2 (file DB), Java 21+.
-Spring Batch jobs, Batch Console, UC4 API and notifications come from [poc-common](../poc-common/README.md).
-
-## Run it
-
-From the repository root (prerequisites, mail server and macOS notes: [Run a PoC](../README.md#run-a-poc)):
+From the repository root (the first build downloads Node.js for the custom UI, so it needs internet access):
 
 ```sh
 mvn -pl poc-jobrunr -am spring-boot:run
-mvn -pl poc-jobrunr -am test       # integration tests (PocContractTest)
 ```
 
-State (Spring Batch history, schedules, JobRunr's jobs, execution logs) lives in `poc-jobrunr/data`. Delete it for a
-fresh start.
+Stop it with Ctrl+C. Run only one PoC at a time; they all use port 8080. Don't run `mvn spring-boot:run` without
+`-pl` in the root folder: Maven then starts every PoC, one after another.
+
+| What | URL |
+|------|-----|
+| **Batch Console** (custom UI) | http://localhost:8080/batch-console/ |
+| **JobRunr dashboard** (built-in dashboard) | http://localhost:8000/dashboard |
+| UC4 API (user `uc4`, password `uc4-secret`) | http://localhost:8080/api/... ([how](../poc-common/README.md#external-scheduler-uc4-api-api)) |
+
+More: [all endpoints](#endpoints), [failure mails](../README.md#run-a-poc) (optional local mail server).
+
+## Tests, data, stack
+
+```sh
+mvn -pl poc-jobrunr -am test               # integration tests
+```
+
+State (schedules, JobRunr's jobs, Spring Batch history, execution logs) lives in `poc-jobrunr/data` (H2 files). Delete the folder for a fresh start with the demo schedules.
+Stack: Spring Boot 4.0.6, Spring Batch 6.0, JobRunr 9.0 OSS (LGPL-3.0), H2, Java 21+. Jobs, Batch Console, UC4 API and notifications are shared via
+[poc-common](../poc-common/README.md).
 
 ## How the schedules work
 
