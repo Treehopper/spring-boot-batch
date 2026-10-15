@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: poc-quartz-manager
+  datasource:
+    # File-based, so the Spring Batch history survives restarts. Delete ./data to start fresh.
+    url: jdbc:h2:file:./data/batch;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+  batch:
+    job:
+      enabled: false # never run jobs on startup; Quartz or the API starts them
+    jdbc:
+      initialize-schema: always
+  quartz:
+    # Persist Quartz schedules in the same H2 database
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+      schema: classpath:quartz/tables_h2.sql
+    properties:
+      org.quartz.scheduler.instanceName: batch-scheduler
+      # One thread per job that may run at the same time. Each Quartz job blocks its thread for the whole batch run.
+      org.quartz.threadPool.threadCount: 4
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  mail:
+    # Mailpit from compose.yaml: SMTP on 1025, web UI on http://localhost:8025
+    host: localhost
+    port: 1025
+
+quartz-manager:
+  # Use Spring Boot's (JDBC-backed) scheduler instead of Quartz Manager's own RAM-only one, see QuartzConfig
+  quartz:
+    enabled: false
+  jobClassPackages: com.example.poc.quartz.jobs
+  oas:
+    enabled: true
+
+poc:
+  api:
+    # Technical user for the external-scheduler (UC4) API
+    user: uc4
+    password: uc4-secret
+    start-timeout: 5s
+  notification:
+    notify-on: FAILED,STOPPED
+    from: batch@example.com
+    to: ops@example.com
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    mail:
+      enabled: false # don't report DOWN just because no SMTP server is running locally
+
+logging:
+  pattern:
+    level: "%5p [exec=%X{jobExecutionId:-}]"
