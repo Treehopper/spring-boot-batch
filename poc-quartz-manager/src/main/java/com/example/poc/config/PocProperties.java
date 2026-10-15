@@ -12,9 +12,13 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * convert to types like {@link Duration}; {@code @ConfigurationProperties} binding is unaffected.
  */
 @ConfigurationProperties("poc")
-public record PocProperties(Api api, Notification notification) {
+public record PocProperties(Api api, Notification notification, @DefaultValue LiveLog liveLog) {
 
   public record Api(String user, String password, @DefaultValue("5s") Duration startTimeout) {
+  }
+
+  /** Live events in the Quartz Manager log panel; {@code chunkEvery} = n sends only every n-th chunk event. */
+  public record LiveLog(@DefaultValue("1") int chunkEvery) {
   }
 
   public record Notification(@DefaultValue("FAILED") Set<BatchStatus> notifyOn, String from, List<String> to) {

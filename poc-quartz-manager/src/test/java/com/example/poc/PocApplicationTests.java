@@ -2,6 +2,7 @@ package com.example.poc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -14,6 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import it.fabioformosa.quartzmanager.api.jobs.entities.LogRecord;
+import it.fabioformosa.quartzmanager.api.websockets.WebSocketLogsNotifier;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.junit.jupiter.api.AfterEach;
@@ -30,6 +33,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -47,6 +51,9 @@ class PocApplicationTests {
 
   @MockitoBean
   JavaMailSender mailSender;
+
+  @MockitoSpyBean
+  WebSocketLogsNotifier logsNotifier;
 
   @AfterEach
   void resetOwner() throws Exception {
@@ -83,6 +90,24 @@ class PocApplicationTests {
       .satisfies(step -> assertThat(step.getWriteCount()).isEqualTo(7));
     // Other tests' runs may still notify asynchronously, so only look at mails for this execution
     verify(mailSender, never()).send(argThat((SimpleMailMessage mail) -> mail.getSubject().contains("#" + execution.getId() + " ")));
+  }
+
+  @Test
+  void runEventsAreStreamedToTheLogPanelOfTheJobsTrigger() throws Exception {
+    JobExecution execution = startAndAwait("{\"itemCount\":\"7\",\"itemDelayMs\":\"0\"}");
+
+    ArgumentCaptor<LogRecord> records = ArgumentCaptor.forClass(LogRecord.class);
+    verify(logsNotifier, timeout(5000).atLeast(5)).send(eq("importCustomersJob-cron"), records.capture());
+    // containsSubsequence tolerates records of other runs in between
+    assertThat(records.getAllValues()).extracting(LogRecord::getMessage)
+      .containsSubsequence(
+        "importCustomersJob #" + execution.getId() + " started by api | parameters: itemCount=7, itemDelayMs=0",
+        "importCustomersStep started",
+        "importCustomersStep: chunk 1 written, 5 items (5 total)",
+        "importCustomersStep: chunk 2 written, 2 items (7 total)");
+    assertThat(records.getAllValues()).extracting(LogRecord::getMessage)
+      .anySatisfy(message -> assertThat(message).startsWith("importCustomersStep COMPLETED"))
+      .anySatisfy(message -> assertThat(message).startsWith("importCustomersJob #" + execution.getId() + " COMPLETED"));
   }
 
   @Test

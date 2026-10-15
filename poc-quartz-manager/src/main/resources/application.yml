@@ -45,6 +45,9 @@ poc:
     user: uc4
     password: uc4-secret
     start-timeout: 5s
+  live-log:
+    # Send a "chunk written" event to the Quartz Manager log panel for every n-th chunk (the panel keeps 50 entries)
+    chunk-every: 1
   notification:
     notify-on: FAILED,STOPPED
     from: batch@example.com

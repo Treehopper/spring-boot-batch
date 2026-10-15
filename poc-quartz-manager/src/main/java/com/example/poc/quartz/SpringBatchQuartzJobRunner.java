@@ -4,9 +4,10 @@ import com.example.poc.launch.BatchJobStarter;
 import com.example.poc.launch.PendingLaunches;
 import it.fabioformosa.quartzmanager.api.jobs.entities.LogRecord;
 import it.fabioformosa.quartzmanager.api.jobs.entities.LogRecord.LogType;
-import it.fabioformosa.quartzmanager.api.websockets.WebhookSender;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.quartz.JobDataMap;
@@ -23,7 +24,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Shared logic of the Quartz jobs in {@code com.example.poc.quartz.jobs}: starts a Spring Batch job via
- * {@link BatchJobStarter} and turns the result into a Quartz Manager {@link LogRecord}.
+ * {@link BatchJobStarter} and turns the result into a Quartz Manager {@link LogRecord}. While the run is in progress,
+ * {@link BatchLiveLog} streams its Spring Batch events to the same log panel.
  * <p>
  * A bean rather than an abstract base class: Quartz Manager offers every subtype of
  * {@code AbstractQuartzManagerJob} it finds as a job class in the UI, including abstract intermediate classes.
@@ -35,13 +37,12 @@ public class SpringBatchQuartzJobRunner {
 
   private final BatchJobStarter batchJobStarter;
   private final PendingLaunches pendingLaunches;
-  private final WebhookSender<LogRecord> webSocketLogsNotifier;
+  private final BatchLiveLog liveLog;
 
-  public SpringBatchQuartzJobRunner(BatchJobStarter batchJobStarter, PendingLaunches pendingLaunches,
-                                    WebhookSender<LogRecord> webSocketLogsNotifier) {
+  public SpringBatchQuartzJobRunner(BatchJobStarter batchJobStarter, PendingLaunches pendingLaunches, BatchLiveLog liveLog) {
     this.batchJobStarter = batchJobStarter;
     this.pendingLaunches = pendingLaunches;
-    this.webSocketLogsNotifier = webSocketLogsNotifier;
+    this.liveLog = liveLog;
   }
 
   public LogRecord run(String batchJobName, JobExecutionContext context) {
@@ -54,14 +55,24 @@ public class SpringBatchQuartzJobRunner {
       ? data.getString(BatchJobStarter.STARTED_BY)
       : (isManualTrigger(triggerKey) ? "manual" : "trigger:" + triggerKey);
 
+    List<String> otherTriggers = otherTriggersOfJob(context);
     LogRecord logRecord;
     if (isScheduledRun(data, triggerKey) && JobOwner.of(data) == JobOwner.UC4) {
       logRecord = new LogRecord(LogType.WARN, batchJobName + " skipped: scheduling is owned by UC4 (trigger " + triggerKey + ")");
     }
     else {
-      logRecord = start(batchJobName, requestId, startedBy, batchParameters(data));
+      List<String> allTriggers = new ArrayList<>(otherTriggers);
+      allTriggers.add(triggerKey.getName());
+      liveLog.open(requestId, allTriggers);
+      try {
+        logRecord = start(batchJobName, requestId, startedBy, batchParameters(data));
+      }
+      finally {
+        liveLog.close(requestId);
+      }
     }
-    publishToJobTriggers(context, logRecord);
+    // AbstractQuartzManagerJob sends the returned record to the firing trigger only
+    liveLog.send(otherTriggers, logRecord);
     return logRecord;
   }
 
@@ -92,14 +103,9 @@ public class SpringBatchQuartzJobRunner {
         .append(": read=").append(step.getReadCount())
         .append(", write=").append(step.getWriteCount())
         .append(", skip=").append(step.getSkipCount());
-    if (execution.getStatus().isUnsuccessful() && !execution.getExitStatus().getExitDescription().isBlank())
-      sb.append(" | ").append(firstLine(execution.getExitStatus().getExitDescription()));
+    execution.getAllFailureExceptions().stream().findFirst()
+      .ifPresent(e -> sb.append(" | ").append(BatchLiveLog.rootCause(e)));
     return sb.toString();
-  }
-
-  private static String firstLine(String text) {
-    int newline = text.indexOf('\n');
-    return newline < 0 ? text : text.substring(0, newline);
   }
 
   /** Every Quartz job data entry except the internal ones becomes a (non-identifying) Spring Batch job parameter. */
@@ -124,19 +130,19 @@ public class SpringBatchQuartzJobRunner {
   /**
    * Quartz Manager only streams the log record to the topic of the trigger that fired. The UI subscribes to the
    * trigger selected in the UI, so runs from one-off triggers ("trigger now", UC4) would never show up. Workaround:
-   * also publish the record to every other trigger of the same job.
+   * also publish the records to every other trigger of the same job.
    */
-  private void publishToJobTriggers(JobExecutionContext context, LogRecord logRecord) {
+  private static List<String> otherTriggersOfJob(JobExecutionContext context) {
     try {
-      for (Trigger trigger : context.getScheduler().getTriggersOfJob(context.getJobDetail().getKey())) {
-        if (!trigger.getKey().equals(context.getTrigger().getKey())) {
-          logRecord.setThreadName(Thread.currentThread().getName());
-          webSocketLogsNotifier.send(trigger.getKey().getName(), logRecord);
-        }
-      }
+      return context.getScheduler().getTriggersOfJob(context.getJobDetail().getKey()).stream()
+        .map(Trigger::getKey)
+        .filter(key -> !key.equals(context.getTrigger().getKey()))
+        .map(TriggerKey::getName)
+        .toList();
     }
     catch (SchedulerException e) {
-      log.warn("Could not publish log record to other triggers", e);
+      log.warn("Could not look up the other triggers of {}", context.getJobDetail().getKey(), e);
+      return List.of();
     }
   }
 }
